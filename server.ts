@@ -186,10 +186,11 @@ import {
   logCallRecord,
 } from './src/serverDb.ts';
 
+export const app = express();
+const server = http.createServer(app);
+app.use(express.json({ limit: '20mb' }));
+
 async function startServer() {
-  const app = express();
-  const server = http.createServer(app);
-  app.use(express.json({ limit: '20mb' }));
 
   // Helper to extract authenticated user
   const getAuthUserId = (req: express.Request): string | null => {
@@ -896,14 +897,14 @@ Generate an updated session memory summary (1-2 concise sentences noting what th
     });
   });
 
-  if (process.env.NODE_ENV !== 'production') {
+  if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
     });
     app.use(vite.middlewares);
-  } else {
+  } else if (!process.env.VERCEL) {
     const distPath = path.join(__dirname, 'dist');
     app.use(express.static(distPath));
     app.get('*', (_req, res) => {
@@ -911,10 +912,14 @@ Generate an updated session memory summary (1-2 concise sentences noting what th
     });
   }
 
-  const PORT = 3000;
-  server.listen(PORT, '0.0.0.0', () => {
-    console.log(`ParleLine server listening on http://0.0.0.0:${PORT}`);
-  });
+  if (!process.env.VERCEL) {
+    const PORT = 3000;
+    server.listen(PORT, '0.0.0.0', () => {
+      console.log(`ParleLine server listening on http://0.0.0.0:${PORT}`);
+    });
+  }
 }
 
 startServer();
+
+export default app;
