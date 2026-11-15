@@ -1026,14 +1026,14 @@ export default function App() {
       : currentStageDef.samplePrompts;
 
   return (
-    <div className="h-screen flex flex-col bg-[#0F0E0D] text-[#EDE8DF] overflow-hidden antialiased">
-      {/* Top Bar: Luxury Communications Deck */}
-      <header className="bg-[#141210] border-b border-white/10 px-4 sm:px-6 py-3 shrink-0 z-10 shadow-md">
-        <div className="max-w-5xl mx-auto flex items-center justify-between gap-4">
+    <div className="h-[100dvh] max-h-[100dvh] flex flex-col bg-[#0F0E0D] text-[#EDE8DF] overflow-hidden antialiased select-none">
+      {/* Top Bar: Mobile-Optimized Luxury Communications Deck */}
+      <header className="bg-[#141210] border-b border-white/10 px-3 sm:px-6 py-2.5 sm:py-3 shrink-0 z-10 shadow-md">
+        <div className="max-w-5xl mx-auto flex items-center justify-between gap-2 sm:gap-4 min-w-0">
           {/* Active Companion Identity */}
-          <div className="flex items-center gap-3">
-            <div className="relative">
-              <div className="w-11 h-11 rounded-full overflow-hidden border border-white/20 shrink-0 bg-[#24211D]">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
+            <div className="relative shrink-0">
+              <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-full overflow-hidden border border-white/20 shrink-0 bg-[#24211D]">
                 <img
                   src={activeWorkspace.avatar_url}
                   alt={activeWorkspace.companion_name}
@@ -1044,19 +1044,19 @@ export default function App() {
                   }}
                 />
               </div>
-              <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-emerald-500 border-2 border-[#141210]" />
+              <span className="absolute bottom-0 right-0 w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-emerald-500 border-2 border-[#141210]" />
             </div>
 
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="font-serif font-bold text-base text-white tracking-tight">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <h1 className="font-serif font-bold text-sm sm:text-base text-white tracking-tight truncate">
                   {activeWorkspace.companion_name}
                 </h1>
-                <span className="text-xs text-[#9E978C] hidden sm:inline">
+                <span className="text-[11px] text-[#9E978C] hidden md:inline truncate">
                   · {activeWorkspace.city_line}
                 </span>
               </div>
-              <p className="text-[11px] text-emerald-400 font-medium flex items-center gap-1.5">
+              <p className="text-[10px] sm:text-[11px] text-emerald-400 font-medium flex items-center gap-1 truncate">
                 <span>{LANGUAGE_FLAGS[activeWorkspace.id] || '🌐'}</span>
                 <span>{activeWorkspace.target_language} Line</span>
                 <span className="text-white/20">·</span>
@@ -1065,8 +1065,8 @@ export default function App() {
             </div>
           </div>
 
-          {/* Center Workspace Switcher Tabs */}
-          <div className="hidden md:flex items-center gap-1.5 bg-white/5 p-1 rounded-xl border border-white/10">
+          {/* Center Workspace Switcher Tabs (Desktop Only) */}
+          <div className="hidden lg:flex items-center gap-1.5 bg-white/5 p-1 rounded-xl border border-white/10 shrink-0">
             {Object.values(memoryState.workspaces).map((ws) => {
               const isSelected = ws.id === activeWorkspace.id;
               const flag = LANGUAGE_FLAGS[ws.id] || '🌐';
@@ -1097,12 +1097,13 @@ export default function App() {
           </div>
 
           {/* Right Action Buttons */}
-          <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             {/* Stage Pill */}
             <button
               type="button"
               onClick={() => setShowStageRoadmap(true)}
-              className="px-2.5 sm:px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-xs font-medium text-[#D1C9BA] flex items-center gap-1.5 transition-colors cursor-pointer"
+              className="px-2 sm:px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-xs font-medium text-[#D1C9BA] flex items-center gap-1 transition-colors cursor-pointer"
+              title="View Stage Progression Roadmap"
             >
               <span className="font-mono text-[11px] text-amber-400 font-semibold">
                 S{activeWorkspace.current_stage}
@@ -1113,13 +1114,14 @@ export default function App() {
               <ChevronDown className="w-3 h-3 text-[#9E978C]" />
             </button>
 
-            {/* Big Green Phone Call Button */}
+            {/* Green Phone Call Button */}
             <button
               type="button"
               onClick={() => setIsCallModalOpen(true)}
-              className="px-3.5 sm:px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer shadow-lg shadow-emerald-950/40 active:scale-95"
+              className="h-9 sm:h-auto px-3 sm:px-4 py-1.5 sm:py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer shadow-lg shadow-emerald-950/40 active:scale-95"
+              title={`Call ${activeWorkspace.companion_name}`}
             >
-              <Phone className="w-4 h-4 fill-current" />
+              <Phone className="w-3.5 h-3.5 fill-current" />
               <span className="hidden sm:inline">Call {activeWorkspace.companion_name}</span>
             </button>
 
@@ -1128,7 +1130,7 @@ export default function App() {
               type="button"
               onClick={handlePauseAndSummarize}
               disabled={isSummarizing}
-              className="p-2 sm:px-3 sm:py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-xs font-medium text-[#D1C9BA] flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+              className="hidden sm:flex p-2 sm:px-3 sm:py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-xs font-medium text-[#D1C9BA] items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
               title="Pause and update companion memory"
             >
               <PauseCircle className="w-4 h-4 text-[#D97757]" />
@@ -1139,7 +1141,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => setShowPromptInspector(true)}
-              className="p-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-xs font-medium text-[#9E978C] hover:text-white cursor-pointer"
+              className="hidden md:flex p-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-xs font-medium text-[#9E978C] hover:text-white cursor-pointer"
               title="Inspect Master System Prompt & Workspace JSON"
             >
               <Terminal className="w-4 h-4" />
@@ -1149,29 +1151,28 @@ export default function App() {
             <button
               type="button"
               onClick={() => setIsAuthModalOpen(true)}
-              className={`px-2.5 sm:px-3 py-2 rounded-xl text-xs font-medium flex items-center gap-1.5 transition-all cursor-pointer ${
+              className={`h-9 sm:h-auto px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl text-xs font-medium flex items-center gap-1.5 transition-all cursor-pointer ${
                 currentUser
                   ? 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/30'
                   : 'bg-white/5 hover:bg-white/10 text-[#D1C9BA] border border-white/10'
               }`}
               title={
                 currentUser
-                  ? `Logged in as ${currentUser.name} (${currentUser.username})`
+                  ? `Logged in as ${currentUser.name}`
                   : 'Log in with password / Sync on Mobile Phone'
               }
             >
-              <User className="w-4 h-4 text-emerald-400" />
+              <User className="w-3.5 h-3.5 text-emerald-400" />
               <span className="hidden sm:inline font-sans">
                 {currentUser ? currentUser.name.split(' ')[0] : 'Sign In'}
               </span>
-              <Smartphone className="w-3.5 h-3.5 text-[#9E978C] hidden sm:inline" />
               {currentUser && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />}
             </button>
           </div>
         </div>
 
-        {/* Mobile Language Switcher Row */}
-        <div className="flex md:hidden items-center gap-1.5 overflow-x-auto pt-2 border-t border-white/5 mt-2">
+        {/* Mobile Language Switcher Row (Zero Scrollbars!) */}
+        <div className="flex lg:hidden items-center gap-1.5 overflow-x-auto no-scrollbar pt-2 border-t border-white/5 mt-2 -mx-3 px-3">
           {Object.values(memoryState.workspaces).map((ws) => {
             const isSelected = ws.id === activeWorkspace.id;
             const flag = LANGUAGE_FLAGS[ws.id] || '🌐';
@@ -1180,10 +1181,10 @@ export default function App() {
                 key={ws.id}
                 type="button"
                 onClick={() => handleSwitchWorkspace(ws.id)}
-                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors whitespace-nowrap shrink-0 flex items-center gap-1 cursor-pointer ${
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all whitespace-nowrap shrink-0 flex items-center gap-1 cursor-pointer active:scale-95 ${
                   isSelected
-                    ? 'bg-white/20 text-white font-semibold'
-                    : 'bg-white/5 text-[#9E978C]'
+                    ? 'bg-white/20 text-white font-semibold shadow-xs'
+                    : 'bg-white/5 text-[#9E978C] hover:text-white'
                 }`}
               >
                 <span>{flag}</span>
@@ -1194,7 +1195,7 @@ export default function App() {
           <button
             type="button"
             onClick={() => setShowAddLanguageModal(true)}
-            className="px-2 py-1 text-xs text-[#9E978C] bg-white/5 rounded-lg shrink-0 flex items-center gap-1 cursor-pointer"
+            className="px-2 py-1 text-xs text-[#9E978C] bg-white/5 hover:bg-white/10 rounded-lg shrink-0 flex items-center gap-1 cursor-pointer"
           >
             <Plus className="w-3 h-3" />
             Add
@@ -1223,7 +1224,7 @@ export default function App() {
           </div>
 
           {/* Chat Messages */}
-          <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-6 space-y-5">
+          <div className="flex-1 overflow-y-auto custom-scrollbar px-3 sm:px-6 py-4 sm:py-6 space-y-4 overscroll-contain">
             {activeMessages.map((msg) => {
               if (msg.content.startsWith('📞 Phone Call Ended')) {
                 return (
@@ -1372,9 +1373,9 @@ export default function App() {
             <div ref={threadEndRef} />
           </div>
 
-          {/* Quick Conversational Reply Chips */}
-          <div className="px-4 sm:px-6 py-2.5 bg-[#141210] border-t border-white/5 flex items-center gap-2 overflow-x-auto">
-            <span className="text-[11px] font-medium text-[#7A7367] whitespace-nowrap shrink-0">
+          {/* Quick Conversational Reply Chips (Zero Scrollbars!) */}
+          <div className="px-3 sm:px-6 py-2 bg-[#141210] border-t border-white/5 flex items-center gap-2 overflow-x-auto no-scrollbar">
+            <span className="text-[10px] sm:text-[11px] font-medium text-[#7A7367] whitespace-nowrap shrink-0">
               Suggestions:
             </span>
             {quickReplies.map((reply, idx) => (
@@ -1383,7 +1384,7 @@ export default function App() {
                 type="button"
                 onClick={() => handleSendMessage(reply, 'chat')}
                 disabled={isSending || isRecordingVoiceNote}
-                className="px-3 py-1.5 text-xs bg-white/5 hover:bg-white/10 text-[#EDE8DF] border border-white/10 rounded-xl whitespace-nowrap shrink-0 transition-colors cursor-pointer disabled:opacity-50"
+                className="px-2.5 sm:px-3 py-1 sm:py-1.5 text-xs bg-white/5 hover:bg-white/10 text-[#EDE8DF] border border-white/10 rounded-xl whitespace-nowrap shrink-0 transition-colors cursor-pointer disabled:opacity-50 active:scale-95"
               >
                 {reply}
               </button>
@@ -1392,7 +1393,7 @@ export default function App() {
 
           {/* Floating Interim Speech Recognition Feedback Bar (Above Composer) */}
           {isRecordingVoiceNote && liveVoiceNoteTranscript && (
-            <div className="px-5 py-2 bg-rose-950/60 border-t border-rose-700/50 text-xs text-rose-200 flex items-center gap-2 animate-in slide-in-from-bottom-2">
+            <div className="px-4 py-2 bg-rose-950/60 border-t border-rose-700/50 text-xs text-rose-200 flex items-center gap-2 animate-in slide-in-from-bottom-2">
               <span className="w-2 h-2 rounded-full bg-rose-400 animate-pulse shrink-0" />
               <span className="text-[#A39C8E] shrink-0 font-medium">Hearing you:</span>
               <span className="font-semibold text-white truncate">
@@ -1401,36 +1402,36 @@ export default function App() {
             </div>
           )}
 
-          {/* WhatsApp-Quality Active Audio Composer */}
-          <div className="p-3 sm:p-4 bg-[#141210] border-t border-white/5">
+          {/* Mobile-Friendly Active Audio / Text Composer */}
+          <div className="p-2.5 sm:p-4 bg-[#141210] border-t border-white/5 pb-[max(0.6rem,env(safe-area-inset-bottom))]">
             {isRecordingVoiceNote ? (
               /* Active Voice Recording Console: Real-time visualizer + live timer */
-              <div className="flex items-center justify-between gap-3 bg-[#1B1815] border border-rose-500/50 rounded-2xl px-4 py-2.5 text-sm animate-in fade-in duration-150 shadow-lg shadow-rose-950/30">
+              <div className="flex items-center justify-between gap-2 sm:gap-3 bg-[#1B1815] border border-rose-500/50 rounded-2xl px-3 sm:px-4 py-2 text-sm animate-in fade-in duration-150 shadow-lg shadow-rose-950/30">
                 {/* Left: Pulsing red dot + Recording Timer */}
-                <div className="flex items-center gap-2 shrink-0">
-                  <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping" />
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
                   <span className="font-mono text-xs font-bold text-rose-300 tabular-nums">
                     {formatTimer(voiceNoteSeconds)}
                   </span>
                 </div>
 
-                {/* Center: Live Audio Frequency Waveform (Directly animated by your actual voice!) */}
-                <div className="flex-1 max-w-xs h-7 flex items-center justify-center gap-1 mx-2">
+                {/* Center: Live Audio Frequency Waveform */}
+                <div className="flex-1 max-w-xs h-7 flex items-center justify-center gap-1 mx-1 sm:mx-2 overflow-hidden">
                   {voiceNoteBars.map((pct, idx) => (
                     <div
                       key={idx}
-                      className="w-1 rounded-full bg-rose-400 transition-all duration-75"
+                      className="w-1 rounded-full bg-rose-400 transition-all duration-75 shrink-0"
                       style={{ height: `${pct}%` }}
                     />
                   ))}
                 </div>
 
                 {/* Right: Trash / Cancel + Send Voice Note */}
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex items-center gap-1.5 shrink-0">
                   <button
                     type="button"
                     onClick={handleCancelVoiceNote}
-                    className="p-2 text-[#9E978C] hover:text-rose-400 rounded-xl hover:bg-white/5 transition-colors cursor-pointer"
+                    className="p-1.5 sm:p-2 text-[#9E978C] hover:text-rose-400 rounded-xl hover:bg-white/5 transition-colors cursor-pointer"
                     title="Cancel voice note"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -1439,10 +1440,10 @@ export default function App() {
                   <button
                     type="button"
                     onClick={handleFinishAndSendVoiceNote}
-                    className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 cursor-pointer shadow-md shadow-rose-950/50"
+                    className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1 cursor-pointer shadow-md shadow-rose-950/50 active:scale-95"
                   >
                     <Send className="w-3.5 h-3.5" />
-                    <span>Send</span>
+                    <span className="hidden sm:inline">Send</span>
                   </button>
                 </div>
               </div>
@@ -1453,17 +1454,17 @@ export default function App() {
                   e.preventDefault();
                   handleSendMessage();
                 }}
-                className="flex items-center gap-2"
+                className="flex items-center gap-1.5 sm:gap-2 w-full min-w-0"
               >
                 {/* Voice Note Button */}
                 <button
                   type="button"
                   onClick={handleStartVoiceNote}
                   disabled={isTranscribingNote || isSending}
-                  className="min-h-[44px] px-3.5 py-2 text-xs font-semibold rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-[#EDE8DF] transition-colors whitespace-nowrap shrink-0 flex items-center gap-1.5 cursor-pointer"
+                  className="h-11 w-11 sm:w-auto sm:px-3.5 sm:py-2 text-xs font-semibold rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-[#EDE8DF] transition-colors shrink-0 flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
                   title="Record a voice note with live soundwave reaction"
                 >
-                  <Mic className="w-3.5 h-3.5 text-emerald-400" />
+                  <Mic className="w-4 h-4 text-emerald-400" />
                   <span className="hidden sm:inline">
                     {isTranscribingNote ? 'Transcribing...' : 'Voice Note'}
                   </span>
@@ -1474,16 +1475,17 @@ export default function App() {
                   type="text"
                   value={inputText}
                   onChange={(e) => setInputText(e.target.value)}
-                  placeholder={`Chat with ${activeWorkspace.companion_name} in ${activeWorkspace.target_language} or English...`}
-                  className="flex-1 min-h-[44px] bg-[#1A1815] border border-white/10 rounded-xl px-4 py-2 text-sm text-[#EDE8DF] placeholder:text-[#6E675C] focus:outline-none focus:border-emerald-500/80 transition-colors"
+                  placeholder={`Chat in ${activeWorkspace.target_language} or English...`}
+                  className="flex-1 min-w-0 h-11 bg-[#1A1815] border border-white/10 rounded-xl px-3 sm:px-4 text-sm text-[#EDE8DF] placeholder:text-[#6E675C] focus:outline-none focus:border-emerald-500/80 transition-colors"
                 />
 
                 <button
                   type="submit"
                   disabled={!inputText.trim() || isSending}
-                  className="min-h-[44px] px-4 sm:px-5 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white text-xs font-semibold rounded-xl transition-all whitespace-nowrap shrink-0 flex items-center gap-1.5 cursor-pointer shadow-md shadow-emerald-950/40"
+                  className="h-11 w-11 sm:w-auto sm:px-5 sm:py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white text-xs font-semibold rounded-xl transition-all shrink-0 flex items-center justify-center gap-1.5 cursor-pointer shadow-md shadow-emerald-950/40 active:scale-95"
+                  title="Send message"
                 >
-                  <Send className="w-3.5 h-3.5" />
+                  <Send className="w-4 h-4" />
                   <span className="hidden sm:inline">Send</span>
                 </button>
               </form>

@@ -15,9 +15,9 @@ export const STAGE_DEFINITIONS: Record<StageNumber, StageDefinition> = {
     description:
       'Start with hello, how are you, and survival check-ins. Ultra-short back-and-forth with natural English code-switching until it feels effortless.',
     samplePrompts: [
-      'Say hello and ask how I am doing today',
-      'Teach me a casual way to say "What’s up?" and "I’m good, and you?"',
-      'Let’s practice greeting each other like we just picked up the phone',
+      'Salut ! Comment ça va ?',
+      'Coucou ! Ça va bien, et toi ?',
+      'Bonjour ! Good to hear you',
     ],
     unlockCriteria: 'Respond smoothly to 3–4 greeting variations without hesitation.',
   },
@@ -29,9 +29,10 @@ export const STAGE_DEFINITIONS: Record<StageNumber, StageDefinition> = {
     description:
       'Everyday closed questions ("How was your day?", "What did you eat?", "Where are you right now?"). Answer in 2–4 words without worrying about grammar rules.',
     samplePrompts: [
-      'Ask me what I ate today so I can answer in 2–4 words',
-      'Ask me how my day was and if I am tired right now',
-      'Ask me a simple 3-word question about what I am drinking or doing',
+      'Juste un bon sandwich',
+      'Du poulet avec du riz',
+      'Un peu fatigué après le travail',
+      'Je prends un café chaud',
     ],
     unlockCriteria: 'Answer everyday closed questions in 2–4 target-language words comfortably.',
   },
@@ -43,9 +44,9 @@ export const STAGE_DEFINITIONS: Record<StageNumber, StageDefinition> = {
     description:
       'Bridge from 3-word fragments into complete everyday sentences ("I ate chicken and rice because I was hungry"). Real back-and-forth—never essays.',
     samplePrompts: [
-      'Ask me what I worked on today and help me answer in one full sentence',
-      'Ask me why I liked what I ate today using "because"',
-      'Ask me an open question about my plans for tonight',
+      'J’ai mangé une salade parce que c’était frais',
+      'Je viens de finir le travail et je me repose',
+      'Ce soir je vais me détendre un peu',
     ],
     unlockCriteria: 'Connect ideas into complete 1-sentence answers to open questions.',
   },
@@ -57,9 +58,9 @@ export const STAGE_DEFINITIONS: Record<StageNumber, StageDefinition> = {
     description:
       'Now that you can hold a real conversation, explore why words change—past vs. present tense, participles, and sentence structure connected to phrases you already use.',
     samplePrompts: [
-      'Show me how past tense works using the sentences we already practiced',
-      'Point out the verb pattern or participle in my next answer',
-      'Let’s compare how to say what I did yesterday vs. what I am doing tomorrow',
+      'Pourquoi le mot change ici ?',
+      'Comment on dit ça au passé composé ?',
+      'Explique-moi la différence avec l’imparfait',
     ],
     unlockCriteria: 'Active mastery mode: grammar rules explained through familiar spoken patterns.',
   },

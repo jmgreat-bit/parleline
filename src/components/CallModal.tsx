@@ -586,10 +586,10 @@ export const CallModal: React.FC<CallModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-[#090807]/98 backdrop-blur-xl flex flex-col justify-between p-4 sm:p-6 text-[#F5F2EB] select-none">
+    <div className="fixed inset-0 z-50 bg-[#090807]/98 backdrop-blur-xl flex flex-col justify-between p-3 sm:p-6 text-[#F5F2EB] select-none h-[100dvh] max-h-[100dvh] overflow-y-auto no-scrollbar">
       {/* Top Status Header */}
-      <div className="max-w-xl w-full mx-auto flex items-center justify-between gap-3 pt-2">
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/5 border border-white/10 text-xs">
+      <div className="max-w-xl w-full mx-auto flex items-center justify-between gap-3 pt-1 sm:pt-2 shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full bg-white/5 border border-white/10 text-[11px] sm:text-xs">
           <span
             className={`w-2 h-2 rounded-full ${
               callState === 'connecting'
@@ -601,9 +601,9 @@ export const CallModal: React.FC<CallModalProps> = ({
             {callState === 'connecting' ? 'Calling...' : formatTimer(secondsOnCall)}
           </span>
           <span className="text-white/30">·</span>
-          <span className="text-[#A39C8E]">{workspace.city_line}</span>
-          <span className="text-white/30">·</span>
-          <span className="text-emerald-400 font-medium">Live Hands-Free Call</span>
+          <span className="text-[#A39C8E] hidden xs:inline">{workspace.city_line}</span>
+          <span className="text-white/30 hidden xs:inline">·</span>
+          <span className="text-emerald-400 font-medium">Live Call</span>
         </div>
 
         <button
@@ -619,10 +619,10 @@ export const CallModal: React.FC<CallModalProps> = ({
       {/* Main Calling Presence */}
       <div className="max-w-md w-full mx-auto flex flex-col items-center text-center my-auto py-2">
         {/* Companion Avatar with Live Sound-Reactive Pulsing Rings */}
-        <div className="relative mb-4 flex items-center justify-center">
+        <div className="relative mb-3 sm:mb-4 flex items-center justify-center">
           {/* Animated visualizer rings when companion speaks */}
           {callState === 'speaking' && (
-            <div className="absolute w-44 h-44 sm:w-52 sm:h-52 rounded-full bg-emerald-500/20 animate-ping duration-1000" />
+            <div className="absolute w-36 h-36 sm:w-52 sm:h-52 rounded-full bg-emerald-500/20 animate-ping duration-1000" />
           )}
 
           {/* Real microphone reaction: Ring expands proportionally to your actual voice volume! */}
@@ -630,14 +630,14 @@ export const CallModal: React.FC<CallModalProps> = ({
             <div
               className="absolute rounded-full bg-rose-500/25 transition-all duration-75"
               style={{
-                width: `${140 + micVolume * 0.9}px`,
-                height: `${140 + micVolume * 0.9}px`,
+                width: `${120 + micVolume * 0.8}px`,
+                height: `${120 + micVolume * 0.8}px`,
               }}
             />
           )}
 
           <div
-            className={`relative z-10 w-32 h-32 sm:w-40 sm:h-40 rounded-full overflow-hidden border-2 transition-all duration-150 shadow-2xl ${
+            className={`relative z-10 w-24 h-24 sm:w-36 sm:h-36 rounded-full overflow-hidden border-2 transition-all duration-150 shadow-2xl ${
               callState === 'speaking'
                 ? 'border-emerald-400 shadow-[0_0_45px_rgba(52,211,153,0.4)] scale-105'
                 : callState === 'listening' && micVolume > 15
@@ -818,19 +818,19 @@ export const CallModal: React.FC<CallModalProps> = ({
       </div>
 
       {/* Real Phone Call Bottom Dock: NO "Done Speaking" or "Send Voice" buttons! */}
-      <div className="max-w-md w-full mx-auto flex items-center justify-center gap-4 pb-2">
+      <div className="max-w-md w-full mx-auto flex items-center justify-center gap-3 sm:gap-4 pb-2 pt-1 shrink-0">
         {/* Mute / Unmute Microphone */}
         <button
           type="button"
           onClick={() => setIsMicMuted((m) => !m)}
-          className={`w-14 h-14 rounded-full flex flex-col items-center justify-center gap-1 text-xs font-medium border transition-all cursor-pointer ${
+          className={`w-12 h-12 sm:w-14 sm:h-14 rounded-full flex flex-col items-center justify-center gap-0.5 sm:gap-1 text-xs font-medium border transition-all cursor-pointer ${
             isMicMuted
               ? 'bg-rose-500/20 border-rose-500/50 text-rose-300'
               : 'bg-white/10 hover:bg-white/15 border-white/15 text-white'
           }`}
           title={isMicMuted ? 'Unmute microphone' : 'Mute microphone'}
         >
-          {isMicMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5 text-emerald-400" />}
+          {isMicMuted ? <MicOff className="w-4 h-4 sm:w-5 sm:h-5" /> : <Mic className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-400" />}
           <span className="text-[9px]">{isMicMuted ? 'Muted' : 'Mute'}</span>
         </button>
 
@@ -838,14 +838,14 @@ export const CallModal: React.FC<CallModalProps> = ({
         <button
           type="button"
           onClick={() => setSlowPlayback((s) => !s)}
-          className={`w-14 h-14 rounded-full flex flex-col items-center justify-center gap-1 text-xs font-medium border transition-all cursor-pointer ${
+          className={`w-12 h-12 sm:w-14 sm:h-14 rounded-full flex flex-col items-center justify-center gap-0.5 sm:gap-1 text-xs font-medium border transition-all cursor-pointer ${
             slowPlayback
               ? 'bg-amber-500/20 border-amber-500/40 text-amber-200'
               : 'bg-white/10 hover:bg-white/15 border-white/15 text-white'
           }`}
           title="Slow down companion speech for clarity"
         >
-          <Gauge className="w-5 h-5 text-amber-300" />
+          <Gauge className="w-4 h-4 sm:w-5 sm:h-5 text-amber-300" />
           <span className="text-[9px]">{slowPlayback ? '0.85x' : 'Speed'}</span>
         </button>
 
@@ -853,10 +853,10 @@ export const CallModal: React.FC<CallModalProps> = ({
         <button
           type="button"
           onClick={handleEndCall}
-          className="w-14 h-14 rounded-full bg-white/10 hover:bg-white/15 border border-white/15 text-white flex flex-col items-center justify-center gap-1 text-xs font-medium transition-all cursor-pointer"
+          className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-white/10 hover:bg-white/15 border border-white/15 text-white flex flex-col items-center justify-center gap-0.5 sm:gap-1 text-xs font-medium transition-all cursor-pointer"
           title="Return to Chat"
         >
-          <MessageSquare className="w-5 h-5" />
+          <MessageSquare className="w-4 h-4 sm:w-5 sm:h-5" />
           <span className="text-[9px]">Chat</span>
         </button>
 
@@ -864,10 +864,10 @@ export const CallModal: React.FC<CallModalProps> = ({
         <button
           type="button"
           onClick={handleEndCall}
-          className="w-16 h-16 rounded-full bg-rose-600 hover:bg-rose-500 text-white flex flex-col items-center justify-center gap-1 shadow-xl shadow-rose-950/60 transition-all cursor-pointer active:scale-95"
+          className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-rose-600 hover:bg-rose-500 text-white flex flex-col items-center justify-center gap-0.5 sm:gap-1 shadow-xl shadow-rose-950/60 transition-all cursor-pointer active:scale-95"
           title="End Call and Save Progress"
         >
-          <PhoneOff className="w-6 h-6 fill-current" />
+          <PhoneOff className="w-5 h-5 sm:w-6 sm:h-6 fill-current" />
           <span className="text-[9px] font-bold uppercase tracking-wider">End</span>
         </button>
       </div>
