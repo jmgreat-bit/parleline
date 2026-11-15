@@ -191,9 +191,7 @@ export const app = express();
 const server = http.createServer(app);
 app.use(express.json({ limit: '20mb' }));
 
-async function startServer() {
-
-  // Helper to extract authenticated user
+// Helper to extract authenticated user
   const getAuthUserId = (req: express.Request): string | null => {
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith('Bearer ')) {
@@ -894,29 +892,30 @@ Transcribe exactly what was said. Return ONLY the transcribed text. If the audio
     });
   });
 
-  if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
-    const { createServer: createViteServer } = await import('vite');
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
-    });
-    app.use(vite.middlewares);
-  } else if (!process.env.VERCEL) {
-    const distPath = path.join(__dirname, 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (_req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
+  async function startServer() {
+    if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
+      const { createServer: createViteServer } = await import('vite');
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: 'spa',
+      });
+      app.use(vite.middlewares);
+    } else if (!process.env.VERCEL) {
+      const distPath = path.join(__dirname, 'dist');
+      app.use(express.static(distPath));
+      app.get('*', (_req, res) => {
+        res.sendFile(path.join(distPath, 'index.html'));
+      });
+    }
+
+    if (!process.env.VERCEL) {
+      const PORT = 3000;
+      server.listen(PORT, '0.0.0.0', () => {
+        console.log(`ParleLine server listening on http://0.0.0.0:${PORT}`);
+      });
+    }
   }
 
-  if (!process.env.VERCEL) {
-    const PORT = 3000;
-    server.listen(PORT, '0.0.0.0', () => {
-      console.log(`ParleLine server listening on http://0.0.0.0:${PORT}`);
-    });
-  }
-}
+  startServer();
 
-startServer();
-
-export default app;
+  export default app;

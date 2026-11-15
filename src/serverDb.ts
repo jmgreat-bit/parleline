@@ -46,24 +46,44 @@ export interface UserSavedData {
   updatedAt: string;
 }
 
+function hashPassword(password: string, salt: string): string {
+  return crypto.scryptSync(password, salt, 64).toString('hex');
+}
+
 function loadUsers(): UserAccount[] {
   try {
     if (fs.existsSync(USERS_FILE)) {
       const raw = fs.readFileSync(USERS_FILE, 'utf-8');
-      return JSON.parse(raw);
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed;
+      }
     }
   } catch (err) {
     console.error('Error reading users file:', err);
   }
-  return [];
+
+  // Pre-seed default user 'james' / 'password123' on fresh or serverless instances
+  const salt = crypto.randomBytes(16).toString('hex');
+  const passwordHash = hashPassword('password123', salt);
+  const defaultUser: UserAccount = {
+    id: 'user_james_primary',
+    name: 'James',
+    username: 'james',
+    passwordHash,
+    salt,
+    createdAt: new Date().toISOString(),
+  };
+
+  try {
+    fs.writeFileSync(USERS_FILE, JSON.stringify([defaultUser], null, 2), 'utf-8');
+  } catch {}
+
+  return [defaultUser];
 }
 
 function saveUsers(users: UserAccount[]) {
   fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), 'utf-8');
-}
-
-function hashPassword(password: string, salt: string): string {
-  return crypto.scryptSync(password, salt, 64).toString('hex');
 }
 
 export function registerUser(name: string, username: string, password: string): { user: UserAccount; token: string } {
