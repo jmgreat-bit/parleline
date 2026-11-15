@@ -86,21 +86,55 @@ function findBestSpeechVoice(langCode: string): SpeechSynthesisVoice | null {
   const voices = window.speechSynthesis.getVoices();
   const prefix = langCode.split('-')[0].toLowerCase();
 
+  // Strict male voice filter to eliminate any robotic male narrator like Microsoft Paul or David
+  const isMaleVoice = (name: string) =>
+    /\b(paul|david|mark|george|claude|thomas|alain|male|guy|stefan|henri|richard|james|homme)\b/i.test(
+      name
+    );
+
+  const femaleKeywords = [
+    'julie',
+    'hortense',
+    'denise',
+    'celine',
+    'céline',
+    'amelie',
+    'amélie',
+    'virginie',
+    'lea',
+    'chloe',
+    'camille',
+    'audrey',
+    'aurelie',
+    'aurélie',
+    'samantha',
+    'karen',
+    'jenny',
+    'zira',
+    'victoria',
+    'female',
+    'natural',
+    'online',
+  ];
+
+  // 1. High priority: confirmed female voice matching language
+  const femaleVoice = voices.find(
+    (v) =>
+      v.lang.toLowerCase().startsWith(prefix) &&
+      !isMaleVoice(v.name) &&
+      femaleKeywords.some((k) => v.name.toLowerCase().includes(k))
+  );
+  if (femaleVoice) return femaleVoice;
+
+  // 2. Any voice for this language that is NOT male
+  const anyNonMale = voices.find(
+    (v) => v.lang.toLowerCase().startsWith(prefix) && !isMaleVoice(v.name)
+  );
+  if (anyNonMale) return anyNonMale;
+
+  // 3. Fallback: language match but never a male voice if avoidable
   return (
-    voices.find(
-      (v) =>
-        v.lang.toLowerCase().startsWith(prefix) &&
-        (v.name.includes('Natural') ||
-          v.name.includes('Google') ||
-          v.name.includes('Online') ||
-          v.name.includes('Denise') ||
-          v.name.includes('Hortense') ||
-          v.name.includes('Julie') ||
-          v.name.includes('Samantha') ||
-          v.name.includes('Karen') ||
-          v.name.includes('Paul') ||
-          v.name.includes('Celine'))
-    ) ||
+    voices.find((v) => v.lang.toLowerCase().startsWith(prefix) && !isMaleVoice(v.name)) ||
     voices.find((v) => v.lang.toLowerCase().startsWith(prefix)) ||
     null
   );
@@ -114,8 +148,8 @@ function speakBrowserSpeech(text: string, langCode: string, slow = false) {
     const utterance = new SpeechSynthesisUtterance(cleanText);
     const effectiveLang = isMostlyEnglish(cleanText) ? 'en-US' : (langCode || 'fr-FR');
     utterance.lang = effectiveLang;
-    utterance.rate = slow ? 0.82 : 0.95;
-    utterance.pitch = 1.0;
+    utterance.rate = slow ? 0.82 : 0.94;
+    utterance.pitch = 1.08; // Warm, natural feminine pitch
 
     const matchedVoice = findBestSpeechVoice(effectiveLang);
     if (matchedVoice) {

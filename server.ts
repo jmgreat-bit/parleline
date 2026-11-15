@@ -130,9 +130,10 @@ Return JSON with:
 }
 
 const TTS_MODELS = [
+  'gemini-3.8-flash-lite-tts',
+  'gemini-3.8-flash-tts',
   'gemini-3.1-flash-tts-preview',
   'gemini-2.5-flash-preview-tts',
-  'gemini-3.8-flash-lite-tts',
 ];
 
 async function synthesizeWavBase64(
@@ -657,10 +658,10 @@ Generate an updated session memory summary (1-2 concise sentences noting what th
     }
   });
 
-  // 4. Text-to-Speech Endpoint (gemini-3.8-flash-lite-tts)
+  // 4. Text-to-Speech Endpoint (gemini-3.8-flash-lite-tts / Aoede)
   app.post('/api/tts', async (req, res) => {
     try {
-      const { text, voiceName = 'Zephyr' } = req.body;
+      const { text, voiceName = 'Aoede' } = req.body;
       if (!text) {
         res.status(400).json({ error: 'Missing text' });
         return;

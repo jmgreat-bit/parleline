@@ -701,7 +701,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           text: msg.content,
-          voiceName: activeWorkspace.voice_name || 'Zephyr',
+          voiceName: activeWorkspace.voice_name || 'Aoede',
         }),
       });
       const data = await response.json();
@@ -743,24 +743,64 @@ export default function App() {
         ).length;
         const effectiveLang = englishWordCount > frenchWordCount ? 'en-US' : (activeWorkspace.language_code || 'fr-FR');
         utter.lang = effectiveLang;
-        utter.rate = 0.92;
+        utter.rate = 0.94;
+        utter.pitch = 1.08; // Warm, natural feminine pitch
 
         const voices = window.speechSynthesis.getVoices();
         const prefix = effectiveLang.split('-')[0].toLowerCase();
-        const matchedVoice =
-          voices.find(
-            (v) =>
-              v.lang.toLowerCase().startsWith(prefix) &&
-              (v.name.includes('Natural') ||
-                v.name.includes('Google') ||
-                v.name.includes('Online') ||
-                v.name.includes('Denise') ||
-                v.name.includes('Hortense') ||
-                v.name.includes('Julie') ||
-                v.name.includes('Samantha') ||
-                v.name.includes('Karen') ||
-                v.name.includes('Celine'))
-          ) || voices.find((v) => v.lang.toLowerCase().startsWith(prefix));
+
+        // Strict male voice filter to eliminate any robotic male narrator like Microsoft Paul or David
+        const isMaleVoice = (name: string) =>
+          /\b(paul|david|mark|george|claude|thomas|alain|male|guy|stefan|henri|richard|james|homme)\b/i.test(
+            name
+          );
+
+        const femaleKeywords = [
+          'julie',
+          'hortense',
+          'denise',
+          'celine',
+          'céline',
+          'amelie',
+          'amélie',
+          'virginie',
+          'lea',
+          'chloe',
+          'camille',
+          'audrey',
+          'aurelie',
+          'aurélie',
+          'samantha',
+          'karen',
+          'jenny',
+          'zira',
+          'victoria',
+          'female',
+          'natural',
+          'online',
+        ];
+
+        // 1. High priority: confirmed female voice
+        let matchedVoice = voices.find(
+          (v) =>
+            v.lang.toLowerCase().startsWith(prefix) &&
+            !isMaleVoice(v.name) &&
+            femaleKeywords.some((k) => v.name.toLowerCase().includes(k))
+        );
+
+        // 2. Second priority: any voice for this language that is NOT male
+        if (!matchedVoice) {
+          matchedVoice = voices.find(
+            (v) => v.lang.toLowerCase().startsWith(prefix) && !isMaleVoice(v.name)
+          );
+        }
+
+        // 3. Fallback: language match without male if possible
+        if (!matchedVoice) {
+          matchedVoice =
+            voices.find((v) => v.lang.toLowerCase().startsWith(prefix) && !isMaleVoice(v.name)) ||
+            voices.find((v) => v.lang.toLowerCase().startsWith(prefix));
+        }
 
         if (matchedVoice) {
           utter.voice = matchedVoice;
