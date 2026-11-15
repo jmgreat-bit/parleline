@@ -7,7 +7,9 @@ import { INITIAL_MEMORY_STATE, INITIAL_MESSAGES_BY_WORKSPACE } from './prompts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const DATA_DIR = path.resolve(__dirname, '../data');
+const DATA_DIR = process.env.VERCEL
+  ? path.join('/tmp', 'parleline_data')
+  : path.resolve(__dirname, '../data');
 
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
