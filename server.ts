@@ -68,8 +68,8 @@ const recordMasteredPhrasesTool: FunctionDeclaration = {
   },
 };
 
-const PRIMARY_MODEL = 'gemini-2.5-flash';
-const FALLBACK_MODEL = 'gemini-3.5-flash';
+const PRIMARY_MODEL = 'gemini-2.5-flash-lite';
+const FALLBACK_MODEL = 'gemini-flash-lite-latest';
 
 async function safeGenerateContent(ai: GoogleGenAI, config: any) {
   try {
@@ -130,9 +130,9 @@ Return JSON with:
 }
 
 const TTS_MODELS = [
-  'gemini-3.8-flash-tts',
   'gemini-3.1-flash-tts-preview',
   'gemini-2.5-flash-preview-tts',
+  'gemini-3.8-flash-lite-tts',
 ];
 
 async function synthesizeWavBase64(
@@ -682,7 +682,7 @@ Generate an updated session memory summary (1-2 concise sentences noting what th
     }
   });
 
-  // 5. Audio Transcription Endpoint (gemini-3.5-transcribe with gemini-3.5-flash fallback)
+  // 5. Audio Transcription Endpoint (multimodal audio models)
   app.post('/api/transcribe', async (req, res) => {
     try {
       const {
@@ -697,46 +697,42 @@ Generate an updated session memory summary (1-2 concise sentences noting what th
 
       const ai = getAiClient();
       let transcript = '';
-      try {
-        const response = await ai.models.generateContent({
-          model: 'gemini-3.5-transcribe',
-          contents: {
-            parts: [
+      const transcribeModels = [
+        'gemini-2.5-flash-lite',
+        'gemini-flash-lite-latest',
+        'gemini-3.5-flash-lite',
+      ];
+
+      for (const model of transcribeModels) {
+        try {
+          const response = await ai.models.generateContent({
+            model,
+            contents: [
               {
-                inlineData: {
-                  mimeType,
-                  data: audioBase64,
-                },
-              },
-              {
-                text: `Transcribe this bilingual spoken audio (English and ${targetLanguage}) accurately. Return ONLY the exact spoken words, nothing else.`,
+                role: 'user',
+                parts: [
+                  {
+                    inlineData: {
+                      mimeType: mimeType.split(';')[0] || 'audio/webm',
+                      data: audioBase64,
+                    },
+                  },
+                  {
+                    text: `Listen to this spoken audio. The speaker may speak English, ${targetLanguage}, or a mix of both.
+Transcribe exactly what was said. Return ONLY the transcribed text. If the audio is silent or unintelligible, reply with empty string.`,
+                  },
+                ],
               },
             ],
-          },
-        });
-        transcript = (response.text || '').trim();
-      } catch (err: any) {
-        console.warn('Transcribe model warning, trying fallback model:', err?.message || err);
-        const fallbackRes = await safeGenerateContent(ai, {
-          model: PRIMARY_MODEL,
-          contents: [
-            {
-              role: 'user',
-              parts: [
-                {
-                  inlineData: {
-                    mimeType,
-                    data: audioBase64,
-                  },
-                },
-                {
-                  text: `Transcribe this audio recording in ${targetLanguage} and/or English. Return ONLY the exact spoken words, with no punctuation or commentary.`,
-                },
-              ],
-            },
-          ],
-        });
-        transcript = (fallbackRes.text || '').trim();
+          });
+          const raw = (response.text || '').trim();
+          if (raw && !raw.toLowerCase().includes('empty') && !raw.toLowerCase().includes('silence')) {
+            transcript = raw;
+            break;
+          }
+        } catch (err: any) {
+          console.warn(`Transcribe model ${model} warning:`, err?.message || err);
+        }
       }
 
       res.json({ transcript });

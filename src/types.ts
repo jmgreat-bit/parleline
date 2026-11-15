@@ -43,6 +43,7 @@ export interface LanguageWorkspace {
 
 export interface CallRecord {
   id: string;
+  userId?: string;
   workspaceId: string;
   companionName: string;
   durationSeconds: number;

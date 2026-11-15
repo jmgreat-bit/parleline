@@ -67,6 +67,20 @@ function playDialRingbackTone(): () => void {
   }
 }
 
+function isMostlyEnglish(text: string): boolean {
+  const frenchWordCount = (
+    text.match(
+      /\b(le|la|les|un|une|des|est|sont|c'est|j'ai|je|tu|il|elle|nous|vous|ils|elles|avec|pour|dans|qui|que|pas|mon|ma|mes|ton|ta|tes|son|sa|ses|du|de|au|aux|bonjour|salut|coucou|comment|ça|va|merci|oui|non)\b/gi
+    ) || []
+  ).length;
+  const englishWordCount = (
+    text.match(
+      /\b(the|is|are|was|were|a|an|in|on|at|to|for|with|you|i|we|they|he|she|it|that|this|have|has|had|do|does|did|will|would|can|could|so|and|but|or|not|hello|hi|what|how|where|when|why)\b/gi
+    ) || []
+  ).length;
+  return englishWordCount > frenchWordCount;
+}
+
 function findBestSpeechVoice(langCode: string): SpeechSynthesisVoice | null {
   if (!('speechSynthesis' in window)) return null;
   const voices = window.speechSynthesis.getVoices();
@@ -82,6 +96,8 @@ function findBestSpeechVoice(langCode: string): SpeechSynthesisVoice | null {
           v.name.includes('Denise') ||
           v.name.includes('Hortense') ||
           v.name.includes('Julie') ||
+          v.name.includes('Samantha') ||
+          v.name.includes('Karen') ||
           v.name.includes('Paul') ||
           v.name.includes('Celine'))
     ) ||
@@ -96,11 +112,12 @@ function speakBrowserSpeech(text: string, langCode: string, slow = false) {
     window.speechSynthesis.cancel();
     const cleanText = text.replace(/[*_#`~()]/g, ' ').trim();
     const utterance = new SpeechSynthesisUtterance(cleanText);
-    utterance.lang = langCode || 'fr-FR';
+    const effectiveLang = isMostlyEnglish(cleanText) ? 'en-US' : (langCode || 'fr-FR');
+    utterance.lang = effectiveLang;
     utterance.rate = slow ? 0.82 : 0.95;
     utterance.pitch = 1.0;
 
-    const matchedVoice = findBestSpeechVoice(langCode);
+    const matchedVoice = findBestSpeechVoice(effectiveLang);
     if (matchedVoice) {
       utterance.voice = matchedVoice;
     }
@@ -142,22 +159,28 @@ export const CallModal: React.FC<CallModalProps> = ({
   const callTurnCountRef = useRef(0);
 
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
   const slowPlaybackRef = useRef(slowPlayback);
   const isOpenRef = useRef(isOpen);
   const isMicMutedRef = useRef(isMicMuted);
+  const callStateRef = useRef(callState);
 
   // Web Audio Analyser
   const audioCtxRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animFrameRef = useRef<number | null>(null);
 
-  // Live browser speech recognition
+  // Live browser speech recognition & rolling MediaRecorder VAD
   const recognitionRef = useRef<any>(null);
   const silenceTimerRef = useRef<any>(null);
   const accumulatedTranscriptRef = useRef<string>('');
   const mediaStreamRef = useRef<MediaStream | null>(null);
+
+  const isSpeakingDetectedRef = useRef(false);
+  const speechStartTimeRef = useRef(0);
+  const lastSoundTimeRef = useRef(0);
+  const isProcessingTurnRef = useRef(false);
+  const callMediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const callAudioChunksRef = useRef<Blob[]>([]);
 
   useEffect(() => {
     slowPlaybackRef.current = slowPlayback;
@@ -173,6 +196,10 @@ export const CallModal: React.FC<CallModalProps> = ({
   useEffect(() => {
     isMicMutedRef.current = isMicMuted;
   }, [isMicMuted]);
+
+  useEffect(() => {
+    callStateRef.current = callState;
+  }, [callState]);
 
   // Sync latest assistant message when opening
   useEffect(() => {
@@ -235,8 +262,31 @@ export const CallModal: React.FC<CallModalProps> = ({
         }
 
         const avg = Math.round(sum / 24);
-        setMicVolume(Math.min(100, Math.round((avg / 255) * 100 * 2)));
+        const currentVol = Math.min(100, Math.round((avg / 255) * 100 * 2));
+        setMicVolume(currentVol);
         setBars(newBars);
+
+        // --- Dual-Track Voice Activity Detection (VAD) ---
+        // Allows true natural conversational flow without requiring manual button presses
+        if (!isProcessingTurnRef.current && callStateRef.current === 'listening') {
+          const now = Date.now();
+          if (currentVol >= 15) {
+            // Active voice detected
+            if (!isSpeakingDetectedRef.current) {
+              isSpeakingDetectedRef.current = true;
+              speechStartTimeRef.current = now;
+            }
+            lastSoundTimeRef.current = now;
+          } else if (isSpeakingDetectedRef.current && now - lastSoundTimeRef.current > 1150) {
+            // Conversational pause: 1.15s of silence after speaking for at least 350ms
+            if (lastSoundTimeRef.current - speechStartTimeRef.current > 350) {
+              isSpeakingDetectedRef.current = false;
+              triggerCallUserTurn();
+            } else {
+              isSpeakingDetectedRef.current = false;
+            }
+          }
+        }
 
         animFrameRef.current = requestAnimationFrame(renderRealMicBars);
       };
@@ -259,18 +309,21 @@ export const CallModal: React.FC<CallModalProps> = ({
     if ('speechSynthesis' in window) {
       window.speechSynthesis.cancel();
     }
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
+    if (callMediaRecorderRef.current && callMediaRecorderRef.current.state !== 'inactive') {
+      try {
+        callMediaRecorderRef.current.stop();
+      } catch {}
+      callMediaRecorderRef.current = null;
     }
     if (recognitionRef.current) {
       try {
         recognitionRef.current.stop();
-      } catch {
-        // ignore
-      }
+      } catch {}
+      recognitionRef.current = null;
     }
     if (silenceTimerRef.current) {
       clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
     }
     if (audioCtxRef.current) {
       audioCtxRef.current.close().catch(() => {});
@@ -284,6 +337,8 @@ export const CallModal: React.FC<CallModalProps> = ({
       cancelAnimationFrame(animFrameRef.current);
       animFrameRef.current = null;
     }
+    isProcessingTurnRef.current = false;
+    isSpeakingDetectedRef.current = false;
   }, []);
 
   useEffect(() => {
@@ -294,6 +349,15 @@ export const CallModal: React.FC<CallModalProps> = ({
 
   const playPartnerAudio = useCallback(
     async (base64Wav: string | null, fallbackText?: string) => {
+      // Pause incoming recorder while partner speaks to prevent echo feedback
+      if (callMediaRecorderRef.current && callMediaRecorderRef.current.state !== 'inactive') {
+        try {
+          callMediaRecorderRef.current.stop();
+        } catch {}
+      }
+      callAudioChunksRef.current = [];
+      isSpeakingDetectedRef.current = false;
+
       if (!base64Wav && !fallbackText) {
         setCallState('listening');
         startContinuousMic();
@@ -407,6 +471,94 @@ export const CallModal: React.FC<CallModalProps> = ({
     }
   };
 
+  // Triggers turn from speech recognition or falls back to Gemini audio transcription
+  const triggerCallUserTurn = async (forcedText?: string) => {
+    if (isProcessingTurnRef.current) return;
+    isProcessingTurnRef.current = true;
+
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch {}
+    }
+
+    const textCandidate = forcedText || (accumulatedTranscriptRef.current || '').trim();
+    accumulatedTranscriptRef.current = '';
+
+    // Track 1: Browser Speech Recognition yielded words
+    if (textCandidate) {
+      await processCallUserTurn(textCandidate);
+      isProcessingTurnRef.current = false;
+      return;
+    }
+
+    // Track 2: Speech Recognition returned empty (e.g. mobile browser or English spoken on French line)
+    // Transcribe the recorded audio chunks directly via Gemini Multimodal Audio
+    setCallState('thinking');
+    setLiveUserCaption('Transcribing your voice...');
+
+    try {
+      if (callMediaRecorderRef.current && callMediaRecorderRef.current.state !== 'inactive') {
+        try {
+          callMediaRecorderRef.current.requestData();
+        } catch {}
+      }
+
+      await new Promise((r) => setTimeout(r, 90));
+
+      const chunks = [...callAudioChunksRef.current];
+      callAudioChunksRef.current = [];
+
+      if (chunks.length > 0) {
+        const audioBlob = new Blob(chunks, {
+          type: callMediaRecorderRef.current?.mimeType || 'audio/webm',
+        });
+
+        if (audioBlob.size > 500) {
+          const reader = new FileReader();
+          const base64: string = await new Promise((resolve) => {
+            reader.onloadend = () => {
+              const res = ((reader.result as string) || '').split(',')[1] || '';
+              resolve(res);
+            };
+            reader.readAsDataURL(audioBlob);
+          });
+
+          if (base64) {
+            const res = await fetch('/api/transcribe', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                audioBase64: base64,
+                mimeType: audioBlob.type || 'audio/webm',
+                targetLanguage: workspace.target_language,
+              }),
+            });
+            const data = await res.json();
+            if (data.transcript && data.transcript.trim()) {
+              await processCallUserTurn(data.transcript.trim());
+              isProcessingTurnRef.current = false;
+              return;
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Call transcribe fallback warning:', err);
+    }
+
+    // If nothing transcribed, smoothly resume listening
+    isProcessingTurnRef.current = false;
+    setLiveUserCaption('');
+    setCallState('listening');
+    startContinuousMic();
+  };
+
   // Continuous Hands-Free Microphone: stays live, detects pauses naturally without button clicks
   const startContinuousMic = async () => {
     if (isMicMutedRef.current || !isOpenRef.current) return;
@@ -435,12 +587,59 @@ export const CallModal: React.FC<CallModalProps> = ({
         }
       }
 
+      // Initialize / Restart Rolling MediaRecorder buffer
+      try {
+        if (callMediaRecorderRef.current && callMediaRecorderRef.current.state !== 'inactive') {
+          try {
+            callMediaRecorderRef.current.stop();
+          } catch {}
+        }
+        let chosenMime = '';
+        if (typeof MediaRecorder !== 'undefined') {
+          if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+            chosenMime = 'audio/webm;codecs=opus';
+          } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+            chosenMime = 'audio/mp4';
+          } else if (MediaRecorder.isTypeSupported('audio/webm')) {
+            chosenMime = 'audio/webm';
+          } else if (MediaRecorder.isTypeSupported('audio/aac')) {
+            chosenMime = 'audio/aac';
+          }
+        }
+        const rec = new MediaRecorder(
+          mediaStreamRef.current!,
+          chosenMime ? { mimeType: chosenMime } : undefined
+        );
+        callAudioChunksRef.current = [];
+        rec.ondataavailable = (e) => {
+          if (e.data && e.data.size > 0) {
+            callAudioChunksRef.current.push(e.data);
+            if (callAudioChunksRef.current.length > 150) {
+              callAudioChunksRef.current = callAudioChunksRef.current.slice(-100);
+            }
+          }
+        };
+        rec.start(100);
+        callMediaRecorderRef.current = rec;
+      } catch (err) {
+        console.warn('Call MediaRecorder start warning:', err);
+      }
+
       accumulatedTranscriptRef.current = '';
+      isSpeakingDetectedRef.current = false;
+      speechStartTimeRef.current = 0;
+      lastSoundTimeRef.current = 0;
+
       const SpeechRecognition =
         (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
       if (SpeechRecognition) {
         try {
+          if (recognitionRef.current) {
+            try {
+              recognitionRef.current.stop();
+            } catch {}
+          }
           const recognition = new SpeechRecognition();
           recognition.continuous = true;
           recognition.interimResults = true;
@@ -466,19 +665,12 @@ export const CallModal: React.FC<CallModalProps> = ({
             if (currentText) {
               setLiveUserCaption(currentText);
 
-              // Natural conversational silence detection: 1.3s pause triggers companion reply
+              // Silence detection on speech recognition
               if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
               silenceTimerRef.current = setTimeout(() => {
                 const finalSpeech = (accumulatedTranscriptRef.current + interim).trim();
-                try {
-                  recognition.stop();
-                } catch {
-                  // ignore
-                }
-                if (finalSpeech) {
-                  processCallUserTurn(finalSpeech);
-                }
-              }, 1300);
+                triggerCallUserTurn(finalSpeech);
+              }, 1200);
             }
           };
 
@@ -815,9 +1007,35 @@ export const CallModal: React.FC<CallModalProps> = ({
             </div>
           )}
         </div>
+
+        {/* Real-time Voice Action: Dual-Track Hands-Free Pause or Instant Tap */}
+        {callState === 'listening' && (
+          <div className="mt-2.5 w-full animate-in fade-in duration-150">
+            <button
+              type="button"
+              onClick={() => triggerCallUserTurn()}
+              className={`w-full py-2.5 px-4 rounded-xl font-medium text-xs sm:text-sm flex items-center justify-center gap-2 transition-all cursor-pointer shadow-lg active:scale-98 ${
+                micVolume > 15
+                  ? 'bg-rose-600 hover:bg-rose-500 text-white animate-pulse shadow-rose-900/40'
+                  : 'bg-white/10 hover:bg-white/15 text-white/90 border border-white/10'
+              }`}
+            >
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  micVolume > 15 ? 'bg-white animate-ping' : 'bg-emerald-400'
+                }`}
+              />
+              <span>
+                {micVolume > 15
+                  ? 'Done Speaking (Send Voice)'
+                  : 'Tap when done speaking (or pause 1s)'}
+              </span>
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* Real Phone Call Bottom Dock: NO "Done Speaking" or "Send Voice" buttons! */}
+      {/* Real Phone Call Bottom Dock */}
       <div className="max-w-md w-full mx-auto flex items-center justify-center gap-3 sm:gap-4 pb-2 pt-1 shrink-0">
         {/* Mute / Unmute Microphone */}
         <button

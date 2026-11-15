@@ -436,6 +436,7 @@ export default function App() {
           stageAtCall: activeWorkspace.current_stage,
           summary: callSummary,
           phrasesMastered: phrases || [],
+          transcriptTurnsCount: 0,
         };
         setCallLogs((prev) => [guestRec, ...prev]);
       }
@@ -728,12 +729,24 @@ export default function App() {
         window.speechSynthesis.cancel();
         const clean = text.replace(/[*_#`~()]/g, ' ').trim();
         const utter = new SpeechSynthesisUtterance(clean);
-        const langCode = activeWorkspace.language_code || 'fr-FR';
-        utter.lang = langCode;
+
+        // Smart bilingual voice detection: if text is mostly English, use en-US; else use target language
+        const frenchWordCount = (
+          clean.match(
+            /\b(le|la|les|un|une|des|est|sont|c'est|j'ai|je|tu|il|elle|nous|vous|ils|elles|avec|pour|dans|qui|que|pas|mon|ma|mes|ton|ta|tes|son|sa|ses|du|de|au|aux|bonjour|salut|coucou|comment|ça|va|merci|oui|non)\b/gi
+          ) || []
+        ).length;
+        const englishWordCount = (
+          clean.match(
+            /\b(the|is|are|was|were|a|an|in|on|at|to|for|with|you|i|we|they|he|she|it|that|this|have|has|had|do|does|did|will|would|can|could|so|and|but|or|not|hello|hi|what|how|where|when|why)\b/gi
+          ) || []
+        ).length;
+        const effectiveLang = englishWordCount > frenchWordCount ? 'en-US' : (activeWorkspace.language_code || 'fr-FR');
+        utter.lang = effectiveLang;
         utter.rate = 0.92;
 
         const voices = window.speechSynthesis.getVoices();
-        const prefix = langCode.split('-')[0].toLowerCase();
+        const prefix = effectiveLang.split('-')[0].toLowerCase();
         const matchedVoice =
           voices.find(
             (v) =>
@@ -744,6 +757,8 @@ export default function App() {
                 v.name.includes('Denise') ||
                 v.name.includes('Hortense') ||
                 v.name.includes('Julie') ||
+                v.name.includes('Samantha') ||
+                v.name.includes('Karen') ||
                 v.name.includes('Celine'))
           ) || voices.find((v) => v.lang.toLowerCase().startsWith(prefix));
 
@@ -840,18 +855,31 @@ export default function App() {
         }
       }
 
-      // 3. MediaRecorder
-      const recorder = new MediaRecorder(stream);
+      // 3. Robust MediaRecorder with mobile browser mimeType detection & 100ms streaming chunks
+      let chosenMimeType = '';
+      if (typeof MediaRecorder !== 'undefined') {
+        if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+          chosenMimeType = 'audio/webm;codecs=opus';
+        } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+          chosenMimeType = 'audio/mp4';
+        } else if (MediaRecorder.isTypeSupported('audio/webm')) {
+          chosenMimeType = 'audio/webm';
+        } else if (MediaRecorder.isTypeSupported('audio/aac')) {
+          chosenMimeType = 'audio/aac';
+        }
+      }
+      const options = chosenMimeType ? { mimeType: chosenMimeType } : undefined;
+      const recorder = new MediaRecorder(stream, options);
       audioChunksRef.current = [];
 
       recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) {
+        if (e.data && e.data.size > 0) {
           audioChunksRef.current.push(e.data);
         }
       };
 
       mediaRecorderRef.current = recorder;
-      recorder.start();
+      recorder.start(100); // 100ms timeslice ensures audio slices are actively buffered on mobile
 
       setIsRecordingVoiceNote(true);
       setVoiceNoteSeconds(0);
@@ -916,15 +944,17 @@ export default function App() {
         return;
       }
 
+      // Collect buffered chunks
       const audioBlob = new Blob(audioChunksRef.current, {
         type: mediaRecorderRef.current?.mimeType || 'audio/webm',
       });
       if (audioBlob.size < 400) {
-        showToast('Voice note was too short.');
+        showToast('Voice note was too short. Speak a word or phrase.');
         return;
       }
 
       setIsTranscribingNote(true);
+      showToast('Transcribing your voice note...');
       const reader = new FileReader();
       reader.onloadend = async () => {
         const base64Audio = (reader.result as string).split(',')[1];
@@ -937,7 +967,7 @@ export default function App() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              audioBase64,
+              audioBase64: base64Audio,
               mimeType: audioBlob.type || 'audio/webm',
               targetLanguage: activeWorkspace.target_language,
             }),
@@ -946,7 +976,7 @@ export default function App() {
           if (data.transcript && data.transcript.trim()) {
             await handleSendMessage(data.transcript.trim(), 'chat');
           } else {
-            showToast('Could not recognize voice note, please try again.');
+            showToast('Could not recognize voice note, please speak clearly.');
           }
         } catch {
           showToast('Voice transcription failed.');
@@ -958,6 +988,11 @@ export default function App() {
       reader.readAsDataURL(audioBlob);
     };
 
+    try {
+      mediaRecorderRef.current.requestData();
+    } catch {
+      // ignore
+    }
     mediaRecorderRef.current.stop();
   };
 
