@@ -1,0 +1,1 @@
+{"name":"ParleLine — Bilingual Call \u0026 Chat Companion","description":"An adaptive, stage-gated bilingual phone call and text chat language companion with strict per-language workspace isolation and on-demand grammar insights.","requestFramePermissions":["microphone"],"majorCapabilities":["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]}
