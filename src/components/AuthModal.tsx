@@ -51,20 +51,26 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username: username.trim(), password }),
       });
 
-      const contentType = res.headers.get('content-type') || '';
       let data: any = {};
-      if (contentType.includes('application/json')) {
-        data = await res.json();
-      } else {
-        const text = await res.text();
-        throw new Error(text || `Server error (${res.status})`);
+      const rawText = await res.text();
+      try {
+        data = JSON.parse(rawText);
+      } catch {
+        // Fallback for non-JSON or proxy errors
+        if (!res.ok) {
+          throw new Error(
+            rawText.includes('Unauthorized') || res.status === 401
+              ? 'Invalid username or password.'
+              : 'Could not connect to authentication service. Please try again.'
+          );
+        }
       }
 
       if (!res.ok) {
-        throw new Error(data.error || 'Login failed');
+        throw new Error(data.error || 'Login failed. Please check your username and password.');
       }
 
       localStorage.setItem('parleline_auth_token', data.token);
@@ -86,16 +92,22 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name.trim() || username, username, password }),
+        body: JSON.stringify({ name: name.trim() || username.trim(), username: username.trim(), password }),
       });
 
-      const contentType = res.headers.get('content-type') || '';
       let data: any = {};
-      if (contentType.includes('application/json')) {
-        data = await res.json();
-      } else {
-        const text = await res.text();
-        throw new Error(text || `Server error (${res.status})`);
+      const rawText = await res.text();
+      try {
+        data = JSON.parse(rawText);
+      } catch {
+        // Fallback for non-JSON or proxy errors
+        if (!res.ok) {
+          throw new Error(
+            rawText.includes('already exists')
+              ? 'Username already exists. Please choose another username or log in.'
+              : 'Could not complete registration. Please try again.'
+          );
+        }
       }
 
       if (!res.ok) {

@@ -245,6 +245,8 @@ export const CallModal: React.FC<CallModalProps> = ({
   const livePartnerAccumRef = useRef<string>('');
   const liveUserAccumRef = useRef<string>('');
   const lastVolUpdateRef = useRef<number>(0);
+  const hasSpokenInCurrentTurnRef = useRef<boolean>(false);
+  const lastSpokenTimeRef = useRef<number>(0);
 
   // Call turns and phrases tracking for database logging
   const callPhrasesRef = useRef<Set<string>>(new Set());
@@ -481,7 +483,10 @@ export const CallModal: React.FC<CallModalProps> = ({
             sum += inputBuffer[i] * inputBuffer[i];
           }
           const rms = Math.sqrt(sum / inputBuffer.length);
-          const vol = Math.min(100, Math.round(rms * 240));
+          // Noise floor subtraction: ambient room hiss is typically 0.03 - 0.05 RMS
+          const NOISE_FLOOR = 0.036;
+          const cleanRms = Math.max(0, rms - NOISE_FLOOR);
+          const vol = Math.min(100, Math.round(cleanRms * 320));
 
           // Throttle volume state updates to eliminate millisecond UI jitter
           const now = Date.now();
@@ -490,19 +495,57 @@ export const CallModal: React.FC<CallModalProps> = ({
             setMicVolume(vol);
           }
 
-          // Proactive barge-in: stop playback if user clearly speaks during partner turn
-          if (vol > 32 && callStateRef.current === 'speaking') {
-            stopLivePlayback();
-            setCallState('listening');
+          // 1. If partner (Camille) is speaking:
+          if (callStateRef.current === 'speaking') {
+            // Drop ambient noise packets so Gemini Live VAD doesn't self-interrupt Camille!
+            // Only allow intentional loud barge-in (vol > 48)
+            if (vol > 48) {
+              stopLivePlayback();
+              setCallState('listening');
+              hasSpokenInCurrentTurnRef.current = true;
+              lastSpokenTimeRef.current = now;
+              const pcm16Base64 = float32ToInt16Base64(inputBuffer, micCtx.sampleRate);
+              wsRef.current.send(
+                JSON.stringify({
+                  type: 'audio',
+                  audio: pcm16Base64,
+                })
+              );
+            }
+            return;
           }
 
-          const pcm16Base64 = float32ToInt16Base64(inputBuffer, micCtx.sampleRate);
-          wsRef.current.send(
-            JSON.stringify({
-              type: 'audio',
-              audio: pcm16Base64,
-            })
-          );
+          // 2. If in listening mode:
+          if (vol > 15) {
+            // User is actively speaking
+            hasSpokenInCurrentTurnRef.current = true;
+            lastSpokenTimeRef.current = now;
+            const pcm16Base64 = float32ToInt16Base64(inputBuffer, micCtx.sampleRate);
+            wsRef.current.send(
+              JSON.stringify({
+                type: 'audio',
+                audio: pcm16Base64,
+              })
+            );
+          } else {
+            // User is silent
+            if (hasSpokenInCurrentTurnRef.current) {
+              // User was speaking and just stopped/paused.
+              // Stream zeroed silence chunks for up to 800ms so Gemini's VAD triggers turn complete immediately:
+              if (now - lastSpokenTimeRef.current < 800) {
+                const zeroBuffer = new Float32Array(inputBuffer.length);
+                const silenceBase64 = float32ToInt16Base64(zeroBuffer, micCtx.sampleRate);
+                wsRef.current.send(
+                  JSON.stringify({
+                    type: 'audio',
+                    audio: silenceBase64,
+                  })
+                );
+              } else {
+                hasSpokenInCurrentTurnRef.current = false;
+              }
+            }
+          }
         };
 
         // Connect through silent gain to keep processor active without audio feedback
@@ -779,13 +822,26 @@ export const CallModal: React.FC<CallModalProps> = ({
   // Triggers turn from speech recognition or falls back to Gemini audio transcription
   const triggerCallUserTurn = async (forcedText?: string) => {
     if (isLiveWsActiveRef.current) {
-      if (forcedText && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        wsRef.current.send(
-          JSON.stringify({
-            type: 'text_nudge',
-            text: forcedText,
-          })
-        );
+      const textToSend = forcedText || liveUserCaption.trim() || accumulatedTranscriptRef.current.trim();
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        if (textToSend) {
+          wsRef.current.send(
+            JSON.stringify({
+              type: 'text_nudge',
+              text: textToSend,
+            })
+          );
+        } else {
+          // Send explicit silence to signal pause/end of turn immediately
+          const silenceBuffer = new Float32Array(2048);
+          const silenceBase64 = float32ToInt16Base64(silenceBuffer, 16000);
+          wsRef.current.send(
+            JSON.stringify({
+              type: 'audio',
+              audio: silenceBase64,
+            })
+          );
+        }
       }
       return;
     }
@@ -1135,7 +1191,8 @@ export const CallModal: React.FC<CallModalProps> = ({
                 wsHandshakeDone = true;
                 isLiveWsActiveRef.current = true;
                 setIsLiveNativeSession(true);
-                setCallState('listening');
+                setCallState('speaking');
+                hasSpokenInCurrentTurnRef.current = false;
                 stopRing();
                 setStatusNotice(null);
                 setLivePartnerGloss('');
@@ -1214,6 +1271,8 @@ export const CallModal: React.FC<CallModalProps> = ({
                   callPhrasesRef.current.add(partnerTurn.slice(0, 30));
                   livePartnerAccumRef.current = '';
                 }
+
+                hasSpokenInCurrentTurnRef.current = false;
 
                 if (activeSourcesRef.current.length === 0) {
                   setCallState('listening');
@@ -1452,7 +1511,12 @@ export const CallModal: React.FC<CallModalProps> = ({
 
           {/* Large, High-Contrast Spoken Sentence */}
           <p className="text-base font-medium text-white leading-relaxed">
-            {livePartnerCaption || `“Allô ! Comment ça va aujourd'hui ?”`}
+            {livePartnerCaption ||
+              (callState === 'speaking'
+                ? `${workspace.companion_name} is speaking...`
+                : callState === 'listening'
+                ? 'Listening... speak in English or French'
+                : 'Connecting to ' + workspace.companion_name + '...')}
           </p>
 
           {/* Real-Time English Translation in Turn-Based Mode */}
@@ -1511,21 +1575,44 @@ export const CallModal: React.FC<CallModalProps> = ({
           )}
         </div>
 
-        {/* Real-time Voice Action: In Live Mode, hands-free indication */}
+        {/* Real-time Voice Action: In Live Mode, hands-free indication with tap support */}
         {isLiveNativeSession ? (
-          <div className="mt-2.5 w-full flex items-center justify-center gap-2 py-2 px-4 rounded-xl bg-white/5 border border-white/10 text-xs text-white/80 animate-fade-in">
-            <span
-              className={`w-2 h-2 rounded-full ${
+          <div className="mt-2.5 w-full animate-in fade-in duration-150">
+            <button
+              type="button"
+              onClick={() => {
+                if (callState === 'speaking') {
+                  stopLivePlayback();
+                  setCallState('listening');
+                } else if (callState === 'listening') {
+                  triggerCallUserTurn();
+                }
+              }}
+              className={`w-full py-2.5 px-4 rounded-xl font-medium text-xs sm:text-sm flex items-center justify-center gap-2 transition-all cursor-pointer shadow-lg active:scale-98 ${
                 callState === 'speaking'
-                  ? 'bg-emerald-400 animate-pulse'
-                  : 'bg-emerald-400/80'
+                  ? 'bg-emerald-950/40 hover:bg-emerald-900/40 border border-emerald-500/30 text-emerald-300'
+                  : micVolume > 15
+                  ? 'bg-rose-600 hover:bg-rose-500 text-white animate-pulse shadow-rose-900/40'
+                  : 'bg-white/10 hover:bg-white/15 text-white/90 border border-white/10'
               }`}
-            />
-            <span>
-              {callState === 'speaking'
-                ? `${workspace.companion_name} is speaking... (speak to interrupt)`
-                : 'Listening... speak in French or English, pause to hear reply'}
-            </span>
+            >
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  callState === 'speaking'
+                    ? 'bg-emerald-400 animate-ping'
+                    : micVolume > 15
+                    ? 'bg-white animate-ping'
+                    : 'bg-emerald-400'
+                }`}
+              />
+              <span>
+                {callState === 'speaking'
+                  ? `${workspace.companion_name} is speaking... (tap to interrupt)`
+                  : micVolume > 15
+                  ? 'Hearing your voice... (tap when done, or pause)'
+                  : '🎙️ Hands-free: Speak naturally (or tap when done)'}
+              </span>
+            </button>
           </div>
         ) : (
           callState === 'listening' && (
