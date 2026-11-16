@@ -293,16 +293,27 @@ export const CallModal: React.FC<CallModalProps> = ({
     callStateRef.current = callState;
   }, [callState]);
 
-  // Sync latest assistant message when opening
+  // Sync latest conversational assistant message when opening
   useEffect(() => {
     setAvatarFailed(false);
-    const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant');
+    const lastAssistant = [...messages]
+      .reverse()
+      .find(
+        (m) =>
+          m.role === 'assistant' &&
+          !m.content.includes('Phone Call Ended') &&
+          !m.content.includes('Call Duration')
+      );
     if (lastAssistant) {
       setLivePartnerCaption(lastAssistant.content);
       setLivePartnerGloss(lastAssistant.englishGloss || '');
       setWhisperReplies(
         lastAssistant.suggestedReplies || STAGE_DEFINITIONS[workspace.current_stage].samplePrompts
       );
+    } else {
+      setLivePartnerCaption('');
+      setLivePartnerGloss('');
+      setWhisperReplies(STAGE_DEFINITIONS[workspace.current_stage].samplePrompts);
     }
   }, [workspace.id, messages.length]);
 
@@ -1124,9 +1135,12 @@ export const CallModal: React.FC<CallModalProps> = ({
                 wsHandshakeDone = true;
                 isLiveWsActiveRef.current = true;
                 setIsLiveNativeSession(true);
+                setCallState('listening');
                 stopRing();
                 setStatusNotice(null);
-                setLivePartnerGloss(''); // Clear stale subtitles
+                setLivePartnerGloss('');
+                setLivePartnerCaption('');
+                setLiveUserCaption('');
 
                 // Start mic streaming immediately with ready stream or prompt
                 if (mediaStreamRef.current) {
@@ -1147,11 +1161,18 @@ export const CallModal: React.FC<CallModalProps> = ({
                     .catch((err) => console.warn('mic acquire error:', err));
                 }
 
-                // Initial greeting nudge
-                const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant');
-                const initialNudge = lastAssistant
-                  ? `Coucou ${workspace.companion_name} ! Pick up from: ${lastAssistant.content}`
-                  : `Allô ${workspace.companion_name} ! I just picked up your call.`;
+                // Initial greeting nudge (ignoring past phone call records)
+                const realLastAssistant = [...messages]
+                  .reverse()
+                  .find(
+                    (m) =>
+                      m.role === 'assistant' &&
+                      !m.content.includes('Phone Call Ended') &&
+                      !m.content.includes('Call Duration')
+                  );
+                const initialNudge = realLastAssistant
+                  ? `Coucou ${workspace.companion_name} ! Pick up naturally from where we were: ${realLastAssistant.content.slice(0, 90)}`
+                  : `Allô ${workspace.companion_name} ! I just picked up your call. Give me a warm, natural greeting!`;
 
                 ws.send(
                   JSON.stringify({
