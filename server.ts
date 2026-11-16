@@ -778,13 +778,13 @@ Transcribe exactly what was said. Return ONLY the transcribed text. If the audio
               : '');
 
           liveSession = await ai.live.connect({
-            model: 'gemini-3.8-live',
+            model: 'gemini-2.5-flash-native-audio-latest',
             config: {
               responseModalities: [Modality.AUDIO],
               speechConfig: {
                 voiceConfig: {
                   prebuiltVoiceConfig: {
-                    voiceName: workspace.voice_name || 'Zephyr',
+                    voiceName: workspace.voice_name || 'Aoede',
                   },
                 },
               },
@@ -862,9 +862,19 @@ Transcribe exactly what was said. Return ONLY the transcribed text. If the audio
               mimeType: 'audio/pcm;rate=16000',
             },
           });
-        } else if (msg.type === 'text_nudge' && liveSession && msg.text) {
+        } else if (msg.type === 'audio_end' && liveSession) {
           liveSession.sendRealtimeInput({
-            text: msg.text,
+            audioStreamEnd: true,
+          });
+        } else if (msg.type === 'text_nudge' && liveSession && msg.text) {
+          liveSession.sendClientContent({
+            turns: [
+              {
+                role: 'user',
+                parts: [{ text: msg.text }],
+              },
+            ],
+            turnComplete: true,
           });
         }
       } catch (err: any) {

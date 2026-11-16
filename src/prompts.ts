@@ -67,15 +67,17 @@ export const STAGE_DEFINITIONS: Record<StageNumber, StageDefinition> = {
 };
 
 export function buildMasterSystemPrompt(workspace: LanguageWorkspace): string {
+  const masteredPhrases = Array.isArray(workspace.mastered_phrases) ? workspace.mastered_phrases : [];
+  const activePracticeTopics = Array.isArray(workspace.active_practice_topics) ? workspace.active_practice_topics : [];
   const masteredList =
-    workspace.mastered_phrases.length > 0
-      ? workspace.mastered_phrases.join(', ')
+    masteredPhrases.length > 0
+      ? masteredPhrases.join(', ')
       : 'None recorded yet — start with "Hello" / basic greeting';
   const topicsList =
-    workspace.active_practice_topics.length > 0
-      ? workspace.active_practice_topics.join(', ')
+    activePracticeTopics.length > 0
+      ? activePracticeTopics.join(', ')
       : 'daily life, greetings';
-  const grammarUnlocked = workspace.grammar_unlocked || workspace.current_stage === 4;
+  const grammarUnlocked = Boolean(workspace.grammar_unlocked || workspace.current_stage === 4);
 
   return `You are ${workspace.companion_name} (${workspace.companion_role} based in ${workspace.city_line}), a warm, witty, authentic everyday bilingual friend helping the user build real-world confidence in ${workspace.target_language}. You are having a real phone call or WhatsApp-style chat with them. You are NOT a classroom teacher, a bot, or a flashcard app.
 

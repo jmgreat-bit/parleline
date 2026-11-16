@@ -67,6 +67,51 @@ function playDialRingbackTone(): () => void {
   }
 }
 
+function base64ToFloat32Array(base64: string): Float32Array {
+  const binaryString = window.atob(base64);
+  const len = binaryString.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  const int16Array = new Int16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 2);
+  const float32 = new Float32Array(int16Array.length);
+  for (let i = 0; i < int16Array.length; i++) {
+    float32[i] = int16Array[i] / 32768.0;
+  }
+  return float32;
+}
+
+function float32ToInt16Base64(input: Float32Array, inputSampleRate: number): string {
+  const targetSampleRate = 16000;
+  let samples: Float32Array;
+  if (inputSampleRate === targetSampleRate) {
+    samples = input;
+  } else {
+    const ratio = inputSampleRate / targetSampleRate;
+    const newLength = Math.round(input.length / ratio);
+    samples = new Float32Array(newLength);
+    for (let i = 0; i < newLength; i++) {
+      const srcIndex = Math.min(Math.floor(i * ratio), input.length - 1);
+      samples[i] = input[srcIndex];
+    }
+  }
+
+  const pcm16 = new Int16Array(samples.length);
+  for (let i = 0; i < samples.length; i++) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+  }
+
+  const bytes = new Uint8Array(pcm16.buffer);
+  let binary = '';
+  const len = bytes.byteLength;
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return window.btoa(binary);
+}
+
 function isMostlyEnglish(text: string): boolean {
   const frenchWordCount = (
     text.match(
@@ -187,6 +232,18 @@ export const CallModal: React.FC<CallModalProps> = ({
   const [lastAudioBase64, setLastAudioBase64] = useState<string | null>(null);
   const [statusNotice, setStatusNotice] = useState<string | null>(null);
   const [avatarFailed, setAvatarFailed] = useState(false);
+  const [isLiveNativeSession, setIsLiveNativeSession] = useState(false);
+
+  // Gemini Live Native Full-Duplex Audio Streaming Refs
+  const wsRef = useRef<WebSocket | null>(null);
+  const playbackCtxRef = useRef<AudioContext | null>(null);
+  const nextPlayTimeRef = useRef<number>(0);
+  const activeSourcesRef = useRef<AudioBufferSourceNode[]>([]);
+  const liveMicCtxRef = useRef<AudioContext | null>(null);
+  const liveProcessorRef = useRef<ScriptProcessorNode | null>(null);
+  const isLiveWsActiveRef = useRef<boolean>(false);
+  const livePartnerAccumRef = useRef<string>('');
+  const liveUserAccumRef = useRef<string>('');
 
   // Call turns and phrases tracking for database logging
   const callPhrasesRef = useRef<Set<string>>(new Set());
@@ -335,7 +392,136 @@ export const CallModal: React.FC<CallModalProps> = ({
     }
   }, [callState, isMicMuted]);
 
+  const stopLivePlayback = useCallback(() => {
+    activeSourcesRef.current.forEach((s) => {
+      try {
+        s.stop();
+      } catch {}
+    });
+    activeSourcesRef.current = [];
+    if (playbackCtxRef.current) {
+      nextPlayTimeRef.current = playbackCtxRef.current.currentTime;
+    } else {
+      nextPlayTimeRef.current = 0;
+    }
+  }, []);
+
+  const playLivePcmChunk = useCallback((base64Data: string) => {
+    try {
+      const float32 = base64ToFloat32Array(base64Data);
+      if (!playbackCtxRef.current || playbackCtxRef.current.state === 'closed') {
+        playbackCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({
+          sampleRate: 24000,
+        });
+      }
+      const ctx = playbackCtxRef.current;
+      if (ctx.state === 'suspended') {
+        ctx.resume().catch(() => {});
+      }
+
+      const audioBuffer = ctx.createBuffer(1, float32.length, 24000);
+      audioBuffer.getChannelData(0).set(float32);
+
+      const source = ctx.createBufferSource();
+      source.buffer = audioBuffer;
+      source.playbackRate.value = slowPlaybackRef.current ? 0.85 : 1.0;
+      source.connect(ctx.destination);
+
+      const startTime = Math.max(ctx.currentTime, nextPlayTimeRef.current);
+      source.start(startTime);
+      nextPlayTimeRef.current =
+        startTime + audioBuffer.duration / (slowPlaybackRef.current ? 0.85 : 1.0);
+
+      activeSourcesRef.current.push(source);
+      source.onended = () => {
+        activeSourcesRef.current = activeSourcesRef.current.filter((s) => s !== source);
+        if (activeSourcesRef.current.length === 0 && callStateRef.current === 'speaking') {
+          setCallState('listening');
+        }
+      };
+    } catch (err) {
+      console.warn('playLivePcmChunk error:', err);
+    }
+  }, []);
+
+  const startLiveMicStreaming = useCallback(
+    (stream: MediaStream) => {
+      try {
+        const micCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+        const sourceNode = micCtx.createMediaStreamSource(stream);
+
+        const analyser = micCtx.createAnalyser();
+        analyser.fftSize = 64;
+        sourceNode.connect(analyser);
+        audioCtxRef.current = micCtx;
+        analyserRef.current = analyser;
+
+        const processor = micCtx.createScriptProcessor(4096, 1, 1);
+
+        processor.onaudioprocess = (e) => {
+          if (!isLiveWsActiveRef.current || isMicMutedRef.current || !wsRef.current) return;
+          if (wsRef.current.readyState !== WebSocket.OPEN) return;
+
+          const inputBuffer = e.inputBuffer.getChannelData(0);
+
+          let sum = 0;
+          for (let i = 0; i < inputBuffer.length; i++) {
+            sum += inputBuffer[i] * inputBuffer[i];
+          }
+          const rms = Math.sqrt(sum / inputBuffer.length);
+          const vol = Math.min(100, Math.round(rms * 240));
+          setMicVolume(vol);
+
+          // Proactive barge-in: stop playback if user speaks during partner turn
+          if (vol > 16 && callStateRef.current === 'speaking') {
+            stopLivePlayback();
+            setCallState('listening');
+          }
+
+          const pcm16Base64 = float32ToInt16Base64(inputBuffer, micCtx.sampleRate);
+          wsRef.current.send(
+            JSON.stringify({
+              type: 'audio',
+              audio: pcm16Base64,
+            })
+          );
+        };
+
+        sourceNode.connect(processor);
+        processor.connect(micCtx.destination);
+
+        liveMicCtxRef.current = micCtx;
+        liveProcessorRef.current = processor;
+      } catch (err) {
+        console.warn('startLiveMicStreaming error:', err);
+      }
+    },
+    [stopLivePlayback]
+  );
+
   const stopAllAudio = useCallback(() => {
+    if (wsRef.current) {
+      try {
+        wsRef.current.close();
+      } catch {}
+      wsRef.current = null;
+    }
+    isLiveWsActiveRef.current = false;
+    stopLivePlayback();
+    if (liveProcessorRef.current) {
+      try {
+        liveProcessorRef.current.disconnect();
+      } catch {}
+      liveProcessorRef.current = null;
+    }
+    if (liveMicCtxRef.current) {
+      liveMicCtxRef.current.close().catch(() => {});
+      liveMicCtxRef.current = null;
+    }
+    if (playbackCtxRef.current) {
+      playbackCtxRef.current.close().catch(() => {});
+      playbackCtxRef.current = null;
+    }
     if (currentAudioRef.current) {
       currentAudioRef.current.pause();
       currentAudioRef.current = null;
@@ -373,7 +559,7 @@ export const CallModal: React.FC<CallModalProps> = ({
     }
     isProcessingTurnRef.current = false;
     isSpeakingDetectedRef.current = false;
-  }, []);
+  }, [stopLivePlayback]);
 
   useEffect(() => {
     return () => {
@@ -736,7 +922,7 @@ export const CallModal: React.FC<CallModalProps> = ({
     setStatusNotice(`Calling ${workspace.companion_name} in ${workspace.city_line}...`);
     const stopRing = playDialRingbackTone();
 
-    async function pickupLine() {
+    const runTurnBasedPickup = async () => {
       try {
         const res = await fetch('/api/call-pickup', {
           method: 'POST',
@@ -780,6 +966,144 @@ export const CallModal: React.FC<CallModalProps> = ({
           startContinuousMic();
         }
       }
+    };
+
+    async function pickupLine() {
+      const isWsSupported = typeof WebSocket !== 'undefined';
+      if (isWsSupported) {
+        try {
+          const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+          const wsUrl = `${proto}//${window.location.host}/api/live-call`;
+          const ws = new WebSocket(wsUrl);
+          wsRef.current = ws;
+
+          let wsHandshakeDone = false;
+
+          ws.onopen = () => {
+            const recentTranscript = messages
+              .slice(-6)
+              .map((m) => `${m.role === 'user' ? 'User' : workspace.companion_name}: ${m.content}`)
+              .join('\n');
+
+            ws.send(
+              JSON.stringify({
+                type: 'init',
+                workspace,
+                recentTranscript,
+              })
+            );
+          };
+
+          ws.onmessage = async (event) => {
+            if (cancelled) return;
+            try {
+              const msg = JSON.parse(event.data);
+
+              if (msg.type === 'ready') {
+                wsHandshakeDone = true;
+                isLiveWsActiveRef.current = true;
+                setIsLiveNativeSession(true);
+                stopRing();
+                setStatusNotice(null);
+                setCallState('listening');
+
+                // Acquire mic stream and start real-time PCM streaming
+                try {
+                  const stream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                      echoCancellation: true,
+                      noiseSuppression: true,
+                      autoGainControl: true,
+                    },
+                  });
+                  mediaStreamRef.current = stream;
+                  startLiveMicStreaming(stream);
+                } catch (err) {
+                  console.warn('Microphone permission error:', err);
+                }
+
+                // Initial greeting nudge
+                const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant');
+                const initialNudge = lastAssistant
+                  ? `Coucou ${workspace.companion_name} ! Pick up from: ${lastAssistant.content}`
+                  : `Allô ${workspace.companion_name} ! I just picked up your call.`;
+
+                ws.send(
+                  JSON.stringify({
+                    type: 'text_nudge',
+                    text: initialNudge,
+                  })
+                );
+              } else if (msg.type === 'audio') {
+                setCallState('speaking');
+                playLivePcmChunk(msg.audio);
+              } else if (msg.type === 'output_transcript') {
+                livePartnerAccumRef.current += msg.text;
+                setLivePartnerCaption(livePartnerAccumRef.current);
+              } else if (msg.type === 'input_transcript') {
+                liveUserAccumRef.current += msg.text;
+                setLiveUserCaption(liveUserAccumRef.current);
+              } else if (msg.type === 'interrupted') {
+                stopLivePlayback();
+                setCallState('listening');
+                setStatusNotice('Listening to you...');
+              } else if (msg.type === 'turn_complete') {
+                const partnerTurn = livePartnerAccumRef.current.trim();
+                const userTurn = liveUserAccumRef.current.trim();
+
+                if (userTurn) {
+                  onAppendCallTurn({
+                    role: 'user',
+                    content: userTurn,
+                  });
+                  callTurnCountRef.current += 1;
+                  liveUserAccumRef.current = '';
+                }
+
+                if (partnerTurn) {
+                  onAppendCallTurn({
+                    role: 'assistant',
+                    content: partnerTurn,
+                  });
+                  callPhrasesRef.current.add(partnerTurn.slice(0, 30));
+                  livePartnerAccumRef.current = '';
+                }
+
+                if (activeSourcesRef.current.length === 0) {
+                  setCallState('listening');
+                }
+              }
+            } catch (err) {
+              console.error('WS message error:', err);
+            }
+          };
+
+          ws.onerror = () => {
+            if (!wsHandshakeDone && !cancelled) {
+              runTurnBasedPickup();
+            }
+          };
+
+          ws.onclose = () => {
+            if (!wsHandshakeDone && !cancelled) {
+              runTurnBasedPickup();
+            }
+          };
+
+          setTimeout(() => {
+            if (!wsHandshakeDone && !cancelled) {
+              runTurnBasedPickup();
+            }
+          }, 3500);
+
+          return;
+        } catch {
+          runTurnBasedPickup();
+          return;
+        }
+      }
+
+      runTurnBasedPickup();
     }
 
     const timer = setTimeout(() => {
@@ -829,7 +1153,9 @@ export const CallModal: React.FC<CallModalProps> = ({
           <span className="text-white/30">·</span>
           <span className="text-[#A39C8E] hidden xs:inline">{workspace.city_line}</span>
           <span className="text-white/30 hidden xs:inline">·</span>
-          <span className="text-emerald-400 font-medium">Live Call</span>
+          <span className="text-emerald-400 font-medium">
+            {isLiveNativeSession ? '⚡ Gemini Live Audio' : 'Live Call'}
+          </span>
         </div>
 
         <button

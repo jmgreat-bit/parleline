@@ -31,6 +31,18 @@
   }
 }
 
+/* Universal scrollbar styling: hide default ugly trackbars, enable sleek touch/wheel scrolling */
+* {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+*::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
 /* Utility to completely hide ugly OS scrollbars */
 .no-scrollbar::-webkit-scrollbar {
   display: none !important;
@@ -43,8 +55,12 @@
 }
 
 /* Sleek minimalist scrollbar for main thread */
+.custom-scrollbar {
+  scrollbar-width: thin;
+}
 .custom-scrollbar::-webkit-scrollbar {
-  width: 4px;
+  display: block !important;
+  width: 4px !important;
 }
 .custom-scrollbar::-webkit-scrollbar-track {
   background: transparent;
