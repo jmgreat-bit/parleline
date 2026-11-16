@@ -857,6 +857,12 @@ Transcribe exactly what was said. Return ONLY the transcribed text. If the audio
           }
         } else if (msg.type === 'audio' && liveSession) {
           liveSession.sendRealtimeInput({
+            media: [
+              {
+                data: msg.audio,
+                mimeType: 'audio/pcm;rate=16000',
+              },
+            ],
             audio: {
               data: msg.audio,
               mimeType: 'audio/pcm;rate=16000',

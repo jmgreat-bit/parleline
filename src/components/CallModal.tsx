@@ -244,6 +244,7 @@ export const CallModal: React.FC<CallModalProps> = ({
   const isLiveWsActiveRef = useRef<boolean>(false);
   const livePartnerAccumRef = useRef<string>('');
   const liveUserAccumRef = useRef<string>('');
+  const lastVolUpdateRef = useRef<number>(0);
 
   // Call turns and phrases tracking for database logging
   const callPhrasesRef = useRef<Set<string>>(new Set());
@@ -470,10 +471,16 @@ export const CallModal: React.FC<CallModalProps> = ({
           }
           const rms = Math.sqrt(sum / inputBuffer.length);
           const vol = Math.min(100, Math.round(rms * 240));
-          setMicVolume(vol);
 
-          // Proactive barge-in: stop playback if user speaks during partner turn
-          if (vol > 16 && callStateRef.current === 'speaking') {
+          // Throttle volume state updates to eliminate millisecond UI jitter
+          const now = Date.now();
+          if (now - lastVolUpdateRef.current > 120) {
+            lastVolUpdateRef.current = now;
+            setMicVolume(vol);
+          }
+
+          // Proactive barge-in: stop playback if user clearly speaks during partner turn
+          if (vol > 32 && callStateRef.current === 'speaking') {
             stopLivePlayback();
             setCallState('listening');
           }
@@ -487,16 +494,83 @@ export const CallModal: React.FC<CallModalProps> = ({
           );
         };
 
+        // Connect through silent gain to keep processor active without audio feedback
+        const silentGain = micCtx.createGain();
+        silentGain.gain.value = 0;
         sourceNode.connect(processor);
-        processor.connect(micCtx.destination);
+        processor.connect(silentGain);
+        silentGain.connect(micCtx.destination);
 
         liveMicCtxRef.current = micCtx;
         liveProcessorRef.current = processor;
+
+        // Browser speech recognition safety net in Live Mode
+        const SpeechRecognition =
+          (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+        if (SpeechRecognition) {
+          try {
+            if (recognitionRef.current) {
+              try {
+                recognitionRef.current.stop();
+              } catch {}
+            }
+            const recognition = new SpeechRecognition();
+            recognition.continuous = true;
+            recognition.interimResults = true;
+            recognition.lang =
+              workspace.id === 'french'
+                ? 'fr-FR'
+                : workspace.id === 'spanish'
+                ? 'es-ES'
+                : workspace.id === 'mandarin'
+                ? 'zh-CN'
+                : 'en-US';
+
+            recognition.onresult = (event: any) => {
+              let interim = '';
+              let finalChunk = '';
+              for (let i = event.resultIndex; i < event.results.length; ++i) {
+                if (event.results[i].isFinal) {
+                  finalChunk += event.results[i][0].transcript + ' ';
+                } else {
+                  interim += event.results[i][0].transcript;
+                }
+              }
+              const currentSpeech = (finalChunk || interim).trim();
+              if (currentSpeech) {
+                setLiveUserCaption(currentSpeech);
+
+                if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+                silenceTimerRef.current = setTimeout(() => {
+                  // After pause, nudge Gemini if model hasn't already started speaking
+                  if (
+                    callStateRef.current !== 'speaking' &&
+                    wsRef.current &&
+                    wsRef.current.readyState === WebSocket.OPEN
+                  ) {
+                    wsRef.current.send(
+                      JSON.stringify({
+                        type: 'text_nudge',
+                        text: currentSpeech,
+                      })
+                    );
+                  }
+                }, 1100);
+              }
+            };
+
+            recognition.onerror = () => {};
+            recognition.start();
+            recognitionRef.current = recognition;
+          } catch {
+            // ignore speech recognition error
+          }
+        }
       } catch (err) {
         console.warn('startLiveMicStreaming error:', err);
       }
     },
-    [stopLivePlayback]
+    [stopLivePlayback, workspace.id]
   );
 
   const stopAllAudio = useCallback(() => {
@@ -1307,11 +1381,6 @@ export const CallModal: React.FC<CallModalProps> = ({
               <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
               {workspace.companion_name} is thinking...
             </span>
-          ) : micVolume > 15 ? (
-            <span className="text-xs text-rose-300 font-medium flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-rose-500/15 border border-rose-500/30">
-              <span className="w-2 h-2 rounded-full bg-rose-500" />
-              Hearing your voice... Speak naturally
-            </span>
           ) : (
             <span className="text-xs text-[#A39C8E]">
               Hands-free: speak in {workspace.target_language} or English whenever you want
@@ -1428,17 +1497,13 @@ export const CallModal: React.FC<CallModalProps> = ({
               className={`w-2 h-2 rounded-full ${
                 callState === 'speaking'
                   ? 'bg-emerald-400 animate-pulse'
-                  : micVolume > 15
-                  ? 'bg-rose-400 animate-ping'
-                  : 'bg-emerald-400/50'
+                  : 'bg-emerald-400/80'
               }`}
             />
             <span>
               {callState === 'speaking'
                 ? `${workspace.companion_name} is speaking... (speak to interrupt)`
-                : micVolume > 15
-                ? 'Listening to you... pause to hear reply'
-                : 'Hands-free: speak naturally in English or French'}
+                : 'Listening... speak in French or English, pause to hear reply'}
             </span>
           </div>
         ) : (
