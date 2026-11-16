@@ -693,6 +693,17 @@ export const CallModal: React.FC<CallModalProps> = ({
 
   // Triggers turn from speech recognition or falls back to Gemini audio transcription
   const triggerCallUserTurn = async (forcedText?: string) => {
+    if (isLiveWsActiveRef.current) {
+      if (forcedText && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(
+          JSON.stringify({
+            type: 'text_nudge',
+            text: forcedText,
+          })
+        );
+      }
+      return;
+    }
     if (isProcessingTurnRef.current) return;
     isProcessingTurnRef.current = true;
 
@@ -922,6 +933,42 @@ export const CallModal: React.FC<CallModalProps> = ({
     setStatusNotice(`Calling ${workspace.companion_name} in ${workspace.city_line}...`);
     const stopRing = playDialRingbackTone();
 
+    // 1. Immediately initialize and unlock AudioContext during user click gesture
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!playbackCtxRef.current || playbackCtxRef.current.state === 'closed') {
+        const pCtx = new AudioCtx({ sampleRate: 24000 });
+        pCtx.resume().catch(() => {});
+        playbackCtxRef.current = pCtx;
+      } else if (playbackCtxRef.current.state === 'suspended') {
+        playbackCtxRef.current.resume().catch(() => {});
+      }
+    } catch (e) {
+      console.warn('AudioContext init error:', e);
+    }
+
+    // 2. Pre-acquire microphone stream immediately while user gesture is active
+    if (!mediaStreamRef.current) {
+      navigator.mediaDevices
+        ?.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+        })
+        .then((stream) => {
+          if (cancelled) return;
+          mediaStreamRef.current = stream;
+          if (isLiveWsActiveRef.current) {
+            startLiveMicStreaming(stream);
+          }
+        })
+        .catch((err) => {
+          console.warn('Microphone pre-acquire warning:', err);
+        });
+    }
+
     const runTurnBasedPickup = async () => {
       try {
         const res = await fetch('/api/call-pickup', {
@@ -1005,21 +1052,25 @@ export const CallModal: React.FC<CallModalProps> = ({
                 setIsLiveNativeSession(true);
                 stopRing();
                 setStatusNotice(null);
-                setCallState('listening');
+                setLivePartnerGloss(''); // Clear stale subtitles
 
-                // Acquire mic stream and start real-time PCM streaming
-                try {
-                  const stream = await navigator.mediaDevices.getUserMedia({
-                    audio: {
-                      echoCancellation: true,
-                      noiseSuppression: true,
-                      autoGainControl: true,
-                    },
-                  });
-                  mediaStreamRef.current = stream;
-                  startLiveMicStreaming(stream);
-                } catch (err) {
-                  console.warn('Microphone permission error:', err);
+                // Start mic streaming immediately with ready stream or prompt
+                if (mediaStreamRef.current) {
+                  startLiveMicStreaming(mediaStreamRef.current);
+                } else {
+                  navigator.mediaDevices
+                    ?.getUserMedia({
+                      audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true,
+                      },
+                    })
+                    .then((stream) => {
+                      mediaStreamRef.current = stream;
+                      startLiveMicStreaming(stream);
+                    })
+                    .catch((err) => console.warn('mic acquire error:', err));
                 }
 
                 // Initial greeting nudge
@@ -1080,24 +1131,29 @@ export const CallModal: React.FC<CallModalProps> = ({
 
           ws.onerror = () => {
             if (!wsHandshakeDone && !cancelled) {
+              console.warn('Live WebSocket error, falling back to turn-based');
               runTurnBasedPickup();
             }
           };
 
           ws.onclose = () => {
             if (!wsHandshakeDone && !cancelled) {
+              console.warn('Live WebSocket closed before handshake, falling back to turn-based');
               runTurnBasedPickup();
             }
           };
 
+          // Generous 12s timeout for WebSocket handshake
           setTimeout(() => {
             if (!wsHandshakeDone && !cancelled) {
+              console.warn('Live WebSocket handshake timeout after 12s, running turn-based');
               runTurnBasedPickup();
             }
-          }, 3500);
+          }, 12000);
 
           return;
-        } catch {
+        } catch (e) {
+          console.warn('WS startup exception:', e);
           runTurnBasedPickup();
           return;
         }
@@ -1106,13 +1162,10 @@ export const CallModal: React.FC<CallModalProps> = ({
       runTurnBasedPickup();
     }
 
-    const timer = setTimeout(() => {
-      pickupLine();
-    }, 1100);
+    pickupLine();
 
     return () => {
       cancelled = true;
-      clearTimeout(timer);
       stopRing();
       stopAllAudio();
     };
@@ -1312,8 +1365,8 @@ export const CallModal: React.FC<CallModalProps> = ({
             {livePartnerCaption || `“Allô ! Comment ça va aujourd'hui ?”`}
           </p>
 
-          {/* Real-Time English Translation Always Visible by Default */}
-          {showEnglishSubtitle && livePartnerGloss && (
+          {/* Real-Time English Translation in Turn-Based Mode */}
+          {!isLiveNativeSession && showEnglishSubtitle && livePartnerGloss && (
             <div className="pt-2 mt-2 border-t border-white/10 text-xs text-amber-200/90 leading-relaxed font-sans">
               <span className="text-white/40 block text-[10px] uppercase tracking-wider mb-0.5">
                 English Meaning:
@@ -1368,30 +1421,51 @@ export const CallModal: React.FC<CallModalProps> = ({
           )}
         </div>
 
-        {/* Real-time Voice Action: Dual-Track Hands-Free Pause or Instant Tap */}
-        {callState === 'listening' && (
-          <div className="mt-2.5 w-full animate-in fade-in duration-150">
-            <button
-              type="button"
-              onClick={() => triggerCallUserTurn()}
-              className={`w-full py-2.5 px-4 rounded-xl font-medium text-xs sm:text-sm flex items-center justify-center gap-2 transition-all cursor-pointer shadow-lg active:scale-98 ${
-                micVolume > 15
-                  ? 'bg-rose-600 hover:bg-rose-500 text-white animate-pulse shadow-rose-900/40'
-                  : 'bg-white/10 hover:bg-white/15 text-white/90 border border-white/10'
+        {/* Real-time Voice Action: In Live Mode, hands-free indication */}
+        {isLiveNativeSession ? (
+          <div className="mt-2.5 w-full flex items-center justify-center gap-2 py-2 px-4 rounded-xl bg-white/5 border border-white/10 text-xs text-white/80 animate-fade-in">
+            <span
+              className={`w-2 h-2 rounded-full ${
+                callState === 'speaking'
+                  ? 'bg-emerald-400 animate-pulse'
+                  : micVolume > 15
+                  ? 'bg-rose-400 animate-ping'
+                  : 'bg-emerald-400/50'
               }`}
-            >
-              <span
-                className={`w-2 h-2 rounded-full ${
-                  micVolume > 15 ? 'bg-white animate-ping' : 'bg-emerald-400'
-                }`}
-              />
-              <span>
-                {micVolume > 15
-                  ? 'Done Speaking (Send Voice)'
-                  : 'Tap when done speaking (or pause 1s)'}
-              </span>
-            </button>
+            />
+            <span>
+              {callState === 'speaking'
+                ? `${workspace.companion_name} is speaking... (speak to interrupt)`
+                : micVolume > 15
+                ? 'Listening to you... pause to hear reply'
+                : 'Hands-free: speak naturally in English or French'}
+            </span>
           </div>
+        ) : (
+          callState === 'listening' && (
+            <div className="mt-2.5 w-full animate-in fade-in duration-150">
+              <button
+                type="button"
+                onClick={() => triggerCallUserTurn()}
+                className={`w-full py-2.5 px-4 rounded-xl font-medium text-xs sm:text-sm flex items-center justify-center gap-2 transition-all cursor-pointer shadow-lg active:scale-98 ${
+                  micVolume > 15
+                    ? 'bg-rose-600 hover:bg-rose-500 text-white animate-pulse shadow-rose-900/40'
+                    : 'bg-white/10 hover:bg-white/15 text-white/90 border border-white/10'
+                }`}
+              >
+                <span
+                  className={`w-2 h-2 rounded-full ${
+                    micVolume > 15 ? 'bg-white animate-ping' : 'bg-emerald-400'
+                  }`}
+                />
+                <span>
+                  {micVolume > 15
+                    ? 'Done Speaking (Send Voice)'
+                    : 'Tap when done speaking (or pause 1s)'}
+                </span>
+              </button>
+            </div>
+          )
         )}
       </div>
 
